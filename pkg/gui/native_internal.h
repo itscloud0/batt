@@ -43,9 +43,12 @@
 @property(nonatomic, retain) NSButton *statsButton;
 @property(nonatomic, retain) NSButton *memoryButton;
 @property(nonatomic, retain) NSButton *diskButton;
-@property(nonatomic, retain) NSTextField *chargeValue;
-@property(nonatomic, retain) NSTextField *heatValue;
-@property(nonatomic, retain) NSTextField *darkValue;
+@property(nonatomic, retain) NSTextField *cpuTopAppLabel;
+@property(nonatomic, retain) NSTextField *memoryTopAppLabel;
+@property(nonatomic, retain) NSButton *cpuQuitButton;
+@property(nonatomic, retain) NSButton *memoryQuitButton;
+@property(nonatomic, retain) NSDictionary *cpuFeaturedApp;
+@property(nonatomic, retain) NSDictionary *memoryFeaturedApp;
 @property(nonatomic, retain) NSMenu *cpuAppsMenu;
 @property(nonatomic, retain) NSMenu *memoryAppsMenu;
 @property(nonatomic, retain) NSArray<NSDictionary *> *appStats;

@@ -262,9 +262,7 @@ static NSString *Watts(double watts) {
     [NSColor.labelColor setFill];
     [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(markerX - 1.5, 94, 3, 16)
                                      xRadius:2 yRadius:2] fill];
-    NSString *limitText = [NSString stringWithFormat:@"Limit %ld%%", (long)limit];
-    Text(limitText, NSMakeRect(MAX(20, MIN(right - 80, markerX - 40)), 78, 80, 17),
-         11, NSFontWeightMedium, NSColor.secondaryLabelColor, NSTextAlignmentCenter);
+    // A real button, layered by the controller, labels this marker and opens exact limits.
     [[NSColor colorWithCalibratedWhite:dark ? 0.28 : 0.80 alpha:1] setFill];
     NSRectFill(NSMakeRect(14, 72, width - 28, 0.7));
 
@@ -306,10 +304,15 @@ static NSString *Watts(double watts) {
         Symbol(@"powerplug.fill", NSMakeRect(24, 22, 25, 25), 21, muted);
         Symbol(@"battery.100percent", NSMakeRect(width - 51, 45, 25, 22), 20, muted);
         Symbol(@"laptopcomputer", NSMakeRect(width - 51, 7, 25, 22), 20, muted);
-        Text(Watts(self.batteryWatts), NSMakeRect(112, 55, 106, 16),
-             11, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentCenter);
-        Text(Watts(self.systemWatts), NSMakeRect(170, 0, 85, 16),
-             11, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentCenter);
+        Text([NSString stringWithFormat:@"Adapter %@", Watts(self.adapterWatts)],
+             NSMakeRect(8, 0, 130, 16), 9.5, NSFontWeightMedium,
+             NSColor.labelColor, NSTextAlignmentLeft);
+        Text([NSString stringWithFormat:@"To battery %@", Watts(self.batteryWatts)],
+             NSMakeRect(170, 55, 112, 16), 9.5, NSFontWeightSemibold,
+             NSColor.labelColor, NSTextAlignmentRight);
+        Text([NSString stringWithFormat:@"To Mac %@", Watts(self.systemWatts)],
+             NSMakeRect(182, 0, 100, 16), 9.5, NSFontWeightSemibold,
+             NSColor.labelColor, NSTextAlignmentRight);
     } else if (hybrid) {
         CGFloat join = 208, center = 33;
         CGFloat fromAdapter = FlowWidth(self.adapterWatts);
@@ -329,10 +332,15 @@ static NSString *Watts(double watts) {
         Symbol(@"powerplug.fill", NSMakeRect(24, 45, 25, 22), 20, muted);
         Symbol(@"battery.100percent", NSMakeRect(24, 5, 25, 22), 20, muted);
         Symbol(@"laptopcomputer", NSMakeRect(width - 51, 22, 25, 25), 21, muted);
-        Text(Watts(self.adapterWatts), NSMakeRect(95, 55, 90, 16),
-             11, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentCenter);
-        Text(Watts(-self.batteryWatts), NSMakeRect(95, 0, 90, 16),
-             11, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentCenter);
+        Text([NSString stringWithFormat:@"Adapter %@", Watts(self.adapterWatts)],
+             NSMakeRect(76, 55, 132, 16), 9.5, NSFontWeightSemibold,
+             NSColor.labelColor, NSTextAlignmentLeft);
+        Text([NSString stringWithFormat:@"Battery %@", Watts(-self.batteryWatts)],
+             NSMakeRect(76, 0, 132, 16), 9.5, NSFontWeightSemibold,
+             NSColor.labelColor, NSTextAlignmentLeft);
+        Text([NSString stringWithFormat:@"Mac %@", Watts(self.systemWatts)],
+             NSMakeRect(213, 0, 85, 16), 9.5, NSFontWeightMedium,
+             NSColor.labelColor, NSTextAlignmentRight);
     } else {
         BOOL fromBattery = !adapter;
         double watts = fromBattery ? -self.batteryWatts : self.adapterWatts;
@@ -340,8 +348,10 @@ static NSString *Watts(double watts) {
         Symbol(fromBattery ? @"battery.100percent" : @"powerplug.fill",
                NSMakeRect(24, 22, 25, 25), 21, muted);
         Symbol(@"laptopcomputer", NSMakeRect(width - 51, 22, 25, 25), 21, muted);
-        Text(Watts(watts), NSMakeRect(110, 47, width - 220, 18),
-             12, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentCenter);
+        Text([NSString stringWithFormat:@"%@ → Mac · %@",
+              fromBattery ? @"Battery" : @"Adapter", Watts(watts)],
+             NSMakeRect(75, 47, width - 150, 18), 10.5, NSFontWeightSemibold,
+             NSColor.labelColor, NSTextAlignmentCenter);
         Text(fromBattery ? @"Battery" : @"Adapter", NSMakeRect(12, 7, 50, 16),
              10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
         Text(@"Mac", NSMakeRect(width - 61, 7, 45, 16),
