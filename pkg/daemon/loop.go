@@ -480,6 +480,36 @@ func maintainLegacyCharging(ignoreMissedLoops bool) bool {
 	maintainedChargingInProgress = isChargingEnabled && isPluggedIn && calibrationState.Phase == calibration.PhaseIdle
 	printStatus(batteryCharge, lower, upper, isChargingEnabled, isPluggedIn, maintainedChargingInProgress, calibrationState.Phase != calibration.PhaseIdle)
 
+	// Heat protection is deliberately evaluated before calibration and normal
+	// hysteresis. It inhibits only battery charging; the wall adapter stays on
+	// and continues powering the Mac.
+	previousHeatStatus := getHeatProtectionStatus()
+	if heatProtectionBlocksCharging() {
+		if isChargingEnabled {
+			if err := smcConn.DisableCharging(); err != nil {
+				logrus.Errorf("DisableCharging for heat protection failed: %v", err)
+				return false
+			}
+		}
+		maintainedChargingInProgress = false
+		status := getHeatProtectionStatus()
+		if status.LastError != "" && previousHeatStatus.LastError != status.LastError {
+			logrus.WithField("sensorError", status.LastError).Error("heat protection paused charging because the battery sensor is unavailable")
+		} else if !previousHeatStatus.Paused {
+			logrus.WithFields(logrus.Fields{
+				"temperatureCelsius": status.TemperatureCelsius,
+				"pauseAtCelsius":     status.PauseTemperatureCelsius,
+				"resumeAtCelsius":    status.ResumeTemperatureCelsius,
+			}).Info("heat protection paused battery charging; AC power remains enabled")
+		}
+		if conf.PreventSystemSleep() {
+			if err := AllowSleepOnAC(); err != nil {
+				logrus.Errorf("AllowSleepOnAC failed: %v", err)
+			}
+		}
+		return true
+	}
+
 	// If calibration is active, advance it and skip normal maintain logic.
 	if applyCalibrationWithinLoop(batteryCharge) {
 		switch conf.ControlMagSafeLED() {

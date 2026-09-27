@@ -20,6 +20,9 @@ type Config interface {
 	DisableUntil() time.Time
 	PreDisableLimit() int
 	AdapterDisableUntil() time.Time
+	HeatProtectionEnabled() bool
+	HeatPauseTemperatureCelsius() float64
+	HeatResumeTemperatureCelsius() float64
 
 	SetUpperLimit(int)
 	SetLowerLimit(int)
@@ -35,6 +38,7 @@ type Config interface {
 	ClearDisableTimer()
 	SetAdapterDisableTimer(time.Time)
 	ClearAdapterDisableTimer()
+	SetHeatProtection(bool, float64, float64)
 
 	LogrusFields() logrus.Fields
 

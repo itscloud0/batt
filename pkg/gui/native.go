@@ -19,7 +19,9 @@ import (
 type menuItem int
 
 const (
+	itemPowerFlowCanvas         menuItem = C.BattItemPowerFlowCanvas
 	itemPowerFlow               menuItem = C.BattItemPowerFlow
+	itemPowerFlowSummary        menuItem = C.BattItemPowerFlowSummary
 	itemPowerSystem             menuItem = C.BattItemPowerSystem
 	itemPowerAdapter            menuItem = C.BattItemPowerAdapter
 	itemPowerBattery            menuItem = C.BattItemPowerBattery
@@ -41,6 +43,12 @@ const (
 	itemPreventIdleSleep        menuItem = C.BattItemPreventIdleSleep
 	itemDisableChargingPreSleep menuItem = C.BattItemDisableChargingPreSleep
 	itemPreventSystemSleep      menuItem = C.BattItemPreventSystemSleep
+	itemHeatProtection          menuItem = C.BattItemHeatProtection
+	itemHeatOff                 menuItem = C.BattItemHeatOff
+	itemHeatStrict              menuItem = C.BattItemHeatStrict
+	itemHeatBalanced            menuItem = C.BattItemHeatBalanced
+	itemHeatRelaxed             menuItem = C.BattItemHeatRelaxed
+	itemHeatCustom              menuItem = C.BattItemHeatCustom
 	itemForceDischarge          menuItem = C.BattItemForceDischarge
 	itemAutoCalibration         menuItem = C.BattItemAutoCalibration
 	itemCalibrationStatus       menuItem = C.BattItemCalibrationStatus
@@ -167,6 +175,18 @@ func (m *nativeMenu) setPower(item menuItem, label string, value float64) {
 	})
 }
 
+func (m *nativeMenu) setPowerFlow(adapter, system, battery float64, heatPaused bool, temperatureCelsius float64) {
+	C.batt_menu_set_power_flow(m.ref, C.double(adapter), C.double(system), C.double(battery), C.bool(heatPaused), C.double(temperatureCelsius))
+}
+
+func (m *nativeMenu) setLimit(limitPercent int) {
+	C.batt_menu_set_limit(m.ref, C.int(limitPercent))
+}
+
+func (m *nativeMenu) setLiveStatus(chargePercent int, pluggedIn, charging, heatPaused bool) {
+	C.batt_menu_set_live_status(m.ref, C.int(chargePercent), C.bool(pluggedIn), C.bool(charging), C.bool(heatPaused))
+}
+
 func quickLimitForItem(item menuItem) int {
 	return 50 + (int(item)-int(itemLimit50))*10
 }
@@ -257,4 +277,20 @@ func battMenuTimerFired(handle C.uintptr_t) {
 func battMenuAction(handle C.uintptr_t, item C.int, checked C.bool) {
 	defer recoverNativeCallback("battMenuAction")
 	controllerForHandle(handle).handleAction(menuItem(item), bool(checked))
+}
+
+//export battMenuSetLimit
+func battMenuSetLimit(handle C.uintptr_t, limit C.int) C.bool {
+	defer recoverNativeCallback("battMenuSetLimit")
+	return C.bool(controllerForHandle(handle).setLimit(normalizeDraggedLimit(int(limit))))
+}
+
+func normalizeDraggedLimit(limit int) int {
+	if limit < 20 {
+		return 20
+	}
+	if limit > 95 {
+		return 95
+	}
+	return ((limit + 2) / 5) * 5
 }

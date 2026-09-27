@@ -38,19 +38,28 @@ type statusBatteryJSON struct {
 }
 
 type statusConfigJSON struct {
-	Enabled                 bool                 `json:"enabled"`
-	UpperLimitPercent       int                  `json:"upperLimitPercent"`
-	LowerLimitPercent       int                  `json:"lowerLimitPercent"`
-	PreventIdleSleep        bool                 `json:"preventIdleSleep"`
-	DisableChargingPreSleep bool                 `json:"disableChargingPreSleep"`
-	PreventSystemSleep      bool                 `json:"preventSystemSleep"`
-	AllowNonRootAccess      bool                 `json:"allowNonRootAccess"`
-	ControlMagSafeLed       statusMagSafeLedJSON `json:"controlMagSafeLed"`
+	Enabled                 bool                     `json:"enabled"`
+	UpperLimitPercent       int                      `json:"upperLimitPercent"`
+	LowerLimitPercent       int                      `json:"lowerLimitPercent"`
+	PreventIdleSleep        bool                     `json:"preventIdleSleep"`
+	DisableChargingPreSleep bool                     `json:"disableChargingPreSleep"`
+	PreventSystemSleep      bool                     `json:"preventSystemSleep"`
+	AllowNonRootAccess      bool                     `json:"allowNonRootAccess"`
+	ControlMagSafeLed       statusMagSafeLedJSON     `json:"controlMagSafeLed"`
+	HeatProtection          statusHeatProtectionJSON `json:"heatProtection"`
 }
 
 type statusMagSafeLedJSON struct {
 	Enabled bool   `json:"enabled"`
 	Mode    string `json:"mode"`
+}
+
+type statusHeatProtectionJSON struct {
+	Enabled                  bool     `json:"enabled"`
+	Paused                   bool     `json:"paused"`
+	TemperatureCelsius       *float64 `json:"temperatureCelsius,omitempty"`
+	PauseTemperatureCelsius  float64  `json:"pauseTemperatureCelsius"`
+	ResumeTemperatureCelsius float64  `json:"resumeTemperatureCelsius"`
 }
 
 type statusCalibrationJSON struct {
@@ -133,8 +142,17 @@ func printStatusJSON(cmd *cobra.Command, data *statusData, cfg *config.File) err
 				Enabled: mode != config.ControlMagSafeModeDisabled,
 				Mode:    string(mode),
 			},
+			HeatProtection: statusHeatProtectionJSON{
+				Enabled:                  cfg.HeatProtectionEnabled(),
+				PauseTemperatureCelsius:  cfg.HeatPauseTemperatureCelsius(),
+				ResumeTemperatureCelsius: cfg.HeatResumeTemperatureCelsius(),
+			},
 		},
 		Compatibility: data.capabilities,
+	}
+	if data.heatProtection != nil {
+		out.Configuration.HeatProtection.Paused = data.heatProtection.Paused
+		out.Configuration.HeatProtection.TemperatureCelsius = data.heatProtection.TemperatureCelsius
 	}
 
 	tr, err := apiClient.GetTelemetry(false, true)

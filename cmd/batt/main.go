@@ -44,6 +44,12 @@ const capabilityAnnotation = "batt.requires-capability"
 
 const helpCompatibilityTimeout = 500 * time.Millisecond
 
+func init() {
+	// AppKit requires its windows to be created on the process startup thread.
+	// Locking in main is too late: Go may move main there before it begins.
+	runtime.LockOSThread()
+}
+
 func annotateCapability(cmd *cobra.Command, feature compatibility.Feature) *cobra.Command {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
@@ -113,8 +119,6 @@ func main() {
 	if os.Getenv("GOMAXPROCS") == "" {
 		runtime.GOMAXPROCS(2)
 	}
-	runtime.LockOSThread()
-
 	if !osver.IsAtLeast(11, 0, 0) {
 		fmt.Fprintln(os.Stderr, "batt requires macOS 11.0 or later")
 		os.Exit(1)
@@ -221,6 +225,7 @@ Report issues: https://github.com/charlie0129/batt/issues`,
 		NewSetDisableChargingPreSleepCommand(),
 		NewSetPreventIdleSleepCommand(),
 		NewSetPreventSystemSleepCommand(),
+		NewHeatProtectionCommand(),
 		NewStatusCommand(),
 		NewCalibrationCommand(),
 		NewAdapterCommand(),

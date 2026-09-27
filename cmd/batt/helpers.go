@@ -55,6 +55,19 @@ func parseIntArg(args []string, valueName string) (int, error) {
 	return value, nil
 }
 
+func parseFloatArg(args []string, valueName string) (float64, error) {
+	if len(args) != 1 {
+		return 0, fmt.Errorf("invalid number of arguments")
+	}
+
+	value, err := strconv.ParseFloat(args[0], 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s: %v", valueName, err)
+	}
+
+	return value, nil
+}
+
 // formatRestoreDelay renders a countdown at minute granularity.
 func formatRestoreDelay(d time.Duration) string {
 	if d < time.Minute {

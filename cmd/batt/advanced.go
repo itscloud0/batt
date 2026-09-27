@@ -56,6 +56,57 @@ Note: please disable disable-charging-pre-sleep and prevent-idle-sleep, while th
 	), compatibility.FeatureSleepHooks)
 }
 
+func NewHeatProtectionCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "heat-protection",
+		GroupID: gAdvanced,
+		Short:   "Pause battery charging while the battery is hot without disabling AC power",
+		Long: `Heat protection inhibits battery charging above a temperature threshold while keeping the power adapter enabled.
+
+Charging resumes only after the battery cools below the resume temperature. This hysteresis prevents rapid on/off switching.`,
+	}
+
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "set <pause-celsius> <resume-celsius>",
+			Short: "Enable heat protection and set pause/resume temperatures",
+			Args:  cobra.ExactArgs(2),
+			RunE: func(_ *cobra.Command, args []string) error {
+				pauseAt, err := parseFloatArg(args[:1], "pause temperature")
+				if err != nil {
+					return err
+				}
+				resumeAt, err := parseFloatArg(args[1:], "resume temperature")
+				if err != nil {
+					return err
+				}
+				if _, err := apiClient.SetHeatProtection(true, pauseAt, resumeAt); err != nil {
+					return fmt.Errorf("failed to set heat protection: %w", err)
+				}
+				logrus.Infof("heat protection enabled: pause at %.1f°C, resume at %.1f°C", pauseAt, resumeAt)
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use:   "disable",
+			Short: "Disable heat protection without changing its temperature settings",
+			RunE: func(_ *cobra.Command, _ []string) error {
+				current, err := apiClient.GetConfig()
+				if err != nil {
+					return fmt.Errorf("failed to get current heat protection settings: %w", err)
+				}
+				cfg := config.NewFileFromConfig(current, "")
+				if _, err := apiClient.SetHeatProtection(false, cfg.HeatPauseTemperatureCelsius(), cfg.HeatResumeTemperatureCelsius()); err != nil {
+					return fmt.Errorf("failed to disable heat protection: %w", err)
+				}
+				logrus.Info("heat protection disabled")
+				return nil
+			},
+		},
+	)
+	return cmd
+}
+
 func NewSetControlMagSafeLEDCommand() *cobra.Command {
 	use := "magsafe-led"
 	cmd := &cobra.Command{

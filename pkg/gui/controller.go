@@ -22,6 +22,8 @@ type menuController struct {
 
 	calibrationThreshold    int
 	calibrationPhase        calibration.Phase
+	heatPaused              bool
+	temperatureCelsius      float64
 	capabilities            compatibility.Capabilities
 	compatibilityKnown      bool
 	disableScheduled        bool
@@ -132,6 +134,7 @@ func (c *menuController) refreshOnOpen() {
 
 	c.calibrationThreshold = conf.CalibrationDischargeThreshold()
 	c.menu.setTitle(itemCurrentLimit, fmt.Sprintf("Current Limit: %d%%", conf.UpperLimit()))
+	c.menu.setLimit(conf.UpperLimit())
 	for _, item := range quickLimitItems {
 		c.menu.setChecked(item, quickLimitForItem(item) == conf.UpperLimit())
 	}
@@ -151,6 +154,15 @@ func (c *menuController) refreshOnOpen() {
 		state = "Will Charge Soon"
 	}
 	c.menu.setTitle(itemState, "State: "+state)
+	heat, err := c.api.GetHeatProtection()
+	if err == nil && heat != nil {
+		c.heatPaused = heat.Paused
+		if heat.TemperatureCelsius != nil {
+			c.temperatureCelsius = *heat.TemperatureCelsius
+		}
+		c.updateHeatProtection(conf, heat)
+	}
+	c.menu.setLiveStatus(currentCharge, isPluggedIn, batteryInfo.State == powerinfo.Charging, c.heatPaused)
 
 	c.updateMagSafeChecks(conf.ControlMagSafeLED())
 	c.menu.setChecked(itemPreventIdleSleep, conf.PreventIdleSleep())
@@ -258,6 +270,7 @@ func (c *menuController) setCompatibility(installed bool, capabilities compatibi
 
 	usable := installed && capabilities.ChargingControl && !needsUpgrade
 	c.menu.setHidden(itemPowerFlow, !usable)
+	c.menu.setHidden(itemPowerFlowCanvas, !usable)
 	c.menu.setHidden(itemInstall, installed)
 	c.menu.setHidden(itemUpgrade, !installed || (!needsUpgrade && capabilities.ChargingControl))
 	c.menu.setHidden(itemState, !installed || !capabilities.ChargingControl)
@@ -272,6 +285,7 @@ func (c *menuController) setCompatibility(installed bool, capabilities compatibi
 	c.menu.setHidden(itemPreventIdleSleep, !usable || !capabilities.SleepHooks)
 	c.menu.setHidden(itemDisableChargingPreSleep, !usable || !capabilities.SleepHooks)
 	c.menu.setHidden(itemPreventSystemSleep, !usable || !capabilities.SleepHooks)
+	c.menu.setHidden(itemHeatProtection, !usable)
 	c.menu.setHidden(itemForceDischarge, !usable || !capabilities.AdapterControl)
 	c.menu.setHidden(itemAutoCalibration, !usable || !capabilities.Calibration)
 	c.menu.setHidden(itemUninstall, !installed)
@@ -296,10 +310,40 @@ func (c *menuController) updateTelemetry() {
 		c.menu.setPower(itemPowerSystem, "System", calculations.SystemPower)
 		c.menu.setPower(itemPowerAdapter, "Adapter", calculations.ACPower)
 		c.menu.setPower(itemPowerBattery, "Battery", calculations.BatteryPower)
+		heat, err := c.api.GetHeatProtection()
+		if err == nil && heat != nil {
+			c.heatPaused = heat.Paused
+			if heat.TemperatureCelsius != nil {
+				c.temperatureCelsius = *heat.TemperatureCelsius
+			}
+		}
+		c.menu.setPowerFlow(calculations.ACPower, calculations.SystemPower, calculations.BatteryPower, c.heatPaused, c.temperatureCelsius)
+		if charge, err := c.api.GetCurrentCharge(); err == nil {
+			pluggedIn, err := c.api.GetPluggedIn()
+			if err == nil {
+				c.menu.setLiveStatus(charge, pluggedIn, calculations.BatteryPower > 0.1, c.heatPaused)
+			}
+		}
 	}
 	if telemetry.Calibration != nil {
 		c.updateCalibration(telemetry.Calibration)
 	}
+}
+
+func (c *menuController) updateHeatProtection(conf config.Config, status *client.HeatProtectionStatus) {
+	c.menu.setChecked(itemHeatOff, !conf.HeatProtectionEnabled())
+	c.menu.setChecked(itemHeatStrict, conf.HeatProtectionEnabled() && conf.HeatPauseTemperatureCelsius() == 32 && conf.HeatResumeTemperatureCelsius() == 29)
+	c.menu.setChecked(itemHeatBalanced, conf.HeatProtectionEnabled() && conf.HeatPauseTemperatureCelsius() == 33 && conf.HeatResumeTemperatureCelsius() == 30)
+	c.menu.setChecked(itemHeatRelaxed, conf.HeatProtectionEnabled() && conf.HeatPauseTemperatureCelsius() == 35 && conf.HeatResumeTemperatureCelsius() == 32)
+	if status.Paused {
+		c.menu.setTitle(itemHeatProtection, fmt.Sprintf("Heat Protection: paused (%.1f°C)", c.temperatureCelsius))
+		return
+	}
+	if conf.HeatProtectionEnabled() {
+		c.menu.setTitle(itemHeatProtection, fmt.Sprintf("Heat Protection: on (%.0f°C → %.0f°C)", conf.HeatPauseTemperatureCelsius(), conf.HeatResumeTemperatureCelsius()))
+		return
+	}
+	c.menu.setTitle(itemHeatProtection, "Heat Protection: off")
 }
 
 func (c *menuController) updateCalibration(status *calibration.Status) {

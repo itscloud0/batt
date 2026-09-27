@@ -47,6 +47,8 @@ func setupRoutes() *gin.Engine {
 	router.PUT("/prevent-idle-sleep", setPreventIdleSleep)
 	router.PUT("/disable-charging-pre-sleep", setDisableChargingPreSleep)
 	router.PUT("/prevent-system-sleep", setPreventSystemSleep)
+	router.GET("/heat-protection", getHeatProtection)
+	router.PUT("/heat-protection", setHeatProtection)
 	router.PUT("/adapter", setAdapter)
 	router.PUT("/adapter/disable", setAdapterDisableFor)
 	router.GET("/adapter", getAdapter)

@@ -6,7 +6,13 @@ static void SetTooltip(BattMenuController *controller, BattMenuItem item, NSStri
 
 void BattApplyTooltips(BattMenuController *controller) {
     SetTooltip(controller, BattItemPowerFlow,
-        @"Power flow data is updated every 60 seconds.");
+        @"Live power flow data is updated every 10 seconds.");
+    SetTooltip(controller, BattItemHeatProtection,
+        @"Stops battery charging above the selected battery temperature. Your Mac keeps running from the power adapter.");
+    SetTooltip(controller, BattItemHeatCustom,
+        @"Set exact pause and resume temperatures in Celsius.");
+    SetTooltip(controller, BattItemDarkWork,
+        @"Turns the display fully off while keeping the Mac awake for Codex, ChatGPT, and other work. Click again to restore the display.");
     SetTooltip(controller, BattItemUpgrade,
         @"Your batt daemon is not compatible with this client version and needs to be upgraded. This is usually caused by a new client version that requires a new daemon version. You can upgrade the batt daemon by running this command.");
     SetTooltip(controller, BattItemInstall,

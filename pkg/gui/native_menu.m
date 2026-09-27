@@ -1,6 +1,92 @@
 #import "native_internal.h"
+#import <mach/mach.h>
+#import <sys/mount.h>
 
-static const NSTimeInterval BattMenuUpdateInterval = 60.0;
+static const NSTimeInterval BattMenuUpdateInterval = 10.0;
+
+@interface BattPopoverValueLabel : NSTextField
+@end
+
+@implementation BattPopoverValueLabel
+- (NSView *)hitTest:(NSPoint)point {
+    (void)point;
+    return nil; // The full row button underneath handles the click.
+}
+@end
+
+static NSTextField *BattPopoverValue(NSRect frame) {
+    NSTextField *label = [BattPopoverValueLabel labelWithString:@""];
+    label.frame = frame;
+    label.alignment = NSTextAlignmentRight;
+    label.font = [NSFont systemFontOfSize:14 weight:NSFontWeightMedium];
+    label.textColor = NSColor.labelColor;
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    return label;
+}
+
+static NSButton *BattPopoverButton(NSRect frame, NSString *title, NSString *symbol,
+                                   id target, SEL action) {
+    NSButton *button = [NSButton buttonWithTitle:title target:target action:action];
+    button.frame = frame;
+    button.bordered = NO;
+    button.alignment = NSTextAlignmentLeft;
+    button.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
+    NSImage *image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+    button.image = [image imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightRegular]];
+    button.imagePosition = NSImageLeft;
+    button.imageHugsTitle = YES;
+    if (title.length > 0) button.title = [@"  " stringByAppendingString:title];
+    return button;
+}
+
+@interface BattPopoverBackground : NSView
+@end
+
+@implementation BattPopoverBackground
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
+        @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    NSColor *top = dark
+        ? [NSColor colorWithCalibratedRed:0.16 green:0.18 blue:0.22 alpha:0.98]
+        : [NSColor colorWithCalibratedRed:0.98 green:0.98 blue:0.99 alpha:0.98];
+    NSColor *bottom = dark
+        ? [NSColor colorWithCalibratedRed:0.13 green:0.15 blue:0.18 alpha:0.98]
+        : [NSColor colorWithCalibratedRed:0.94 green:0.95 blue:0.96 alpha:0.98];
+    NSGradient *gradient = [[[NSGradient alloc] initWithStartingColor:bottom
+                                                          endingColor:top] autorelease];
+    [gradient drawInBezierPath:[NSBezierPath bezierPathWithRoundedRect:self.bounds
+                                                              xRadius:12 yRadius:12] angle:90];
+}
+@end
+
+@interface BattPopoverCard : NSView
+@end
+
+@implementation BattPopoverCard
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
+        @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    [[NSColor colorWithCalibratedWhite:dark ? 0.33 : 0.83 alpha:0.72] setFill];
+    NSRectFill(NSMakeRect(13, 35, NSWidth(self.bounds) - 26, 0.7));
+    NSRectFill(NSMakeRect(13, 71, NSWidth(self.bounds) - 26, 0.7));
+}
+@end
+
+@interface BattPopoverDivider : NSView
+@end
+
+@implementation BattPopoverDivider
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
+        @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    [[NSColor colorWithCalibratedWhite:dark ? 0.28 : 0.80 alpha:1] setFill];
+    NSRectFill(self.bounds);
+}
+@end
 
 static NSMenuItem *ActionItem(BattMenuController *controller,
                               NSString *title,
@@ -56,11 +142,30 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         _menu.delegate = self;
         _statusItem = [[[NSStatusBar systemStatusBar]
             statusItemWithLength:NSVariableStatusItemLength] retain];
+        _statusItem.autosaveName = @"BattThermalCombinedStatus";
+        _cpuPercent = -1;
+        _memoryPercent = -1;
+        _diskPercent = -1;
+        _powerFlowView = [[BattPowerFlowView alloc] initWithFrame:NSMakeRect(0, 0, 332, 188)];
 
         BattBuildMenu(self, version);
         BattApplyTooltips(self);
-        _statusItem.menu = _menu;
+        [self buildPopover];
+        _statusItem.button.target = self;
+        _statusItem.button.action = @selector(togglePopover:);
+        [_statusItem.button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
         [self setStatusIconInstalled:NO capable:NO needsUpgrade:NO];
+        _timer = [[NSTimer scheduledTimerWithTimeInterval:BattMenuUpdateInterval
+                                                   target:self
+                                                 selector:@selector(timerTick:)
+                                                 userInfo:nil
+                                                  repeats:YES] retain];
+        _statsTimer = [[NSTimer scheduledTimerWithTimeInterval:2.0
+                                                        target:self
+                                                      selector:@selector(updateSystemStats:)
+                                                      userInfo:nil
+                                                       repeats:YES] retain];
+        [self updateSystemStats:nil];
     }
     return self;
 }
@@ -68,9 +173,27 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 - (void)dealloc {
     [_timer invalidate];
     [_timer release];
+    [_statsTimer invalidate];
+    [_statsTimer release];
     _menu.delegate = nil;
     [[NSStatusBar systemStatusBar] removeStatusItem:_statusItem];
     [_statusItem release];
+    [_batteryIcon release];
+    [_powerFlowView release];
+    [_popover release];
+    [_chargeButton release];
+    [_heatButton release];
+    [_darkButton release];
+    [_statsButton release];
+    [_memoryButton release];
+    [_diskButton release];
+    [_chargeValue release];
+    [_heatValue release];
+    [_darkValue release];
+    [_cpuAppsMenu release];
+    [_memoryAppsMenu release];
+    [_appStats release];
+    [_previousProcessCPU release];
     [_menu release];
     [_items release];
     [super dealloc];
@@ -97,6 +220,25 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
             [self item:BattItemMagSafeAlwaysOff].state = identifier == BattItemMagSafeAlwaysOff
                 ? NSControlStateValueOn : NSControlStateValueOff;
             break;
+        case BattItemHeatOff:
+        case BattItemHeatStrict:
+        case BattItemHeatBalanced:
+        case BattItemHeatRelaxed:
+            [self item:BattItemHeatOff].state = identifier == BattItemHeatOff
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            [self item:BattItemHeatStrict].state = identifier == BattItemHeatStrict
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            [self item:BattItemHeatBalanced].state = identifier == BattItemHeatBalanced
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            [self item:BattItemHeatRelaxed].state = identifier == BattItemHeatRelaxed
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            break;
+        case BattItemDarkWork:
+            [self toggleDarkWork];
+            return;
+        case BattItemHeatCustom:
+            [self setCustomHeatProtection];
+            return;
         case BattItemPreventIdleSleep:
         case BattItemDisableChargingPreSleep:
         case BattItemPreventSystemSleep:
@@ -114,25 +256,265 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 }
 
 - (void)menuWillOpen:(NSMenu *)menu {
-    (void)menu;
+    if (menu == self.menu) [self updateDiagnosticMenus];
     battMenuWillOpen(_handle);
-    self.timer = [NSTimer timerWithTimeInterval:BattMenuUpdateInterval
-                                        target:self
-                                      selector:@selector(timerTick:)
-                                      userInfo:nil
-                                       repeats:YES];
-    [[NSRunLoop mainRunLoop] addTimer:self.timer forMode:NSRunLoopCommonModes];
+}
+
+- (void)buildPopover {
+    NSView *content = [[[BattPopoverBackground alloc]
+        initWithFrame:NSMakeRect(0, 0, 332, 350)] autorelease];
+    self.powerFlowView.frame = NSMakeRect(0, 162, 332, 188);
+    self.powerFlowView.limitTarget = self;
+    self.powerFlowView.limitAction = @selector(commitLimitFromRail:);
+    [content addSubview:self.powerFlowView];
+
+    BattPopoverCard *card = [[[BattPopoverCard alloc]
+        initWithFrame:NSMakeRect(14, 49, 304, 108)] autorelease];
+    [content addSubview:card];
+
+    self.chargeButton = BattPopoverButton(NSMakeRect(27, 121, 277, 35),
+        @"Charge Limit", @"battery.100percent", self, @selector(showChargeLimits:));
+    self.heatButton = BattPopoverButton(NSMakeRect(27, 85, 277, 35),
+        @"Heat Protection", @"thermometer.medium", self, @selector(showHeatOptions:));
+    self.darkButton = BattPopoverButton(NSMakeRect(27, 49, 277, 35),
+        @"Dark Work", @"moon.fill", self, @selector(toggleDarkWorkFromPopover:));
+    self.chargeValue = BattPopoverValue(NSMakeRect(204, 128, 100, 20));
+    self.heatValue = BattPopoverValue(NSMakeRect(204, 92, 100, 20));
+    self.darkValue = BattPopoverValue(NSMakeRect(204, 56, 100, 20));
+    for (NSTextField *value in @[self.chargeValue, self.heatValue, self.darkValue]) {
+        value.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+    }
+    for (NSView *view in @[self.chargeButton, self.heatButton, self.darkButton,
+                           self.chargeValue, self.heatValue, self.darkValue]) {
+        [content addSubview:view];
+    }
+    BattPopoverDivider *footerLine = [[[BattPopoverDivider alloc]
+        initWithFrame:NSMakeRect(14, 43, 304, 1)] autorelease];
+    [content addSubview:footerLine];
+    self.statsButton = BattPopoverButton(NSMakeRect(17, 16, 81, 25),
+        @"CPU —", @"cpu", self, @selector(showCPUApps:));
+    self.memoryButton = BattPopoverButton(NSMakeRect(104, 16, 86, 25),
+        @"RAM —", @"memorychip", self, @selector(showMemoryApps:));
+    self.diskButton = BattPopoverButton(NSMakeRect(198, 16, 81, 25),
+        @"SSD —", @"internaldrive", self, @selector(showDiagnostics:));
+    for (NSButton *button in @[self.statsButton, self.memoryButton, self.diskButton]) {
+        button.image = nil;
+        button.title = @"—";
+        button.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightMedium];
+        [content addSubview:button];
+    }
+    NSArray<NSString *> *captions = @[@"load", @"memory used", @"space used"];
+    NSArray<NSNumber *> *captionX = @[@17, @104, @198];
+    NSArray<NSNumber *> *captionWidths = @[@81, @86, @81];
+    for (NSInteger index = 0; index < captions.count; index++) {
+        NSTextField *caption = [NSTextField labelWithString:captions[index]];
+        caption.frame = NSMakeRect(captionX[index].doubleValue, 3,
+                                   captionWidths[index].doubleValue, 15);
+        caption.font = [NSFont systemFontOfSize:9 weight:NSFontWeightRegular];
+        caption.textColor = NSColor.secondaryLabelColor;
+        [content addSubview:caption];
+    }
+    self.statsButton.toolTip = @"CPU busy; top CPU apps";
+    self.memoryButton.toolTip = @"Physical memory used; top memory apps";
+    self.diskButton.toolTip = @"Storage space used; open diagnostics";
+    NSButton *more = BattPopoverButton(NSMakeRect(287, 8, 30, 30),
+        @"", @"gearshape", self, @selector(showMoreMenu:));
+    more.toolTip = @"More options and Quit";
+    [content addSubview:more];
+
+    NSViewController *controller = [[[NSViewController alloc] init] autorelease];
+    controller.view = content;
+    self.popover = [[[NSPopover alloc] init] autorelease];
+    self.popover.behavior = NSPopoverBehaviorTransient;
+    self.popover.contentSize = NSMakeSize(332, 350);
+    self.popover.contentViewController = controller;
+    [self refreshPopoverControls];
+}
+
+- (void)togglePopover:(id)sender {
+    (void)sender;
+    NSEvent *event = [NSApp currentEvent];
+    if (event.type == NSEventTypeRightMouseUp) {
+        [self.popover close];
+        battMenuWillOpen(_handle);
+        [self updateDiagnosticMenus];
+        [self showMenu:self.menu fromButton:self.statusItem.button];
+        return;
+    }
+    if (self.popover.isShown) {
+        [self.popover close];
+        return;
+    }
+    battMenuWillOpen(_handle);
+    [self refreshPopoverControls];
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.popover showRelativeToRect:self.statusItem.button.bounds
+                             ofView:self.statusItem.button
+                      preferredEdge:NSRectEdgeMinY];
+}
+
+- (void)showMenu:(NSMenu *)menu fromButton:(NSButton *)button {
+    if (menu == nil) return;
+    battMenuWillOpen(_handle);
+    [menu popUpMenuPositioningItem:nil
+                       atLocation:NSMakePoint(0, NSHeight(button.bounds))
+                           inView:button];
+    [self refreshPopoverControls];
+}
+
+- (void)showChargeLimits:(NSButton *)sender {
+    [self showMenu:[self item:BattItemQuickLimits].submenu fromButton:sender];
+}
+
+- (void)showHeatOptions:(NSButton *)sender {
+    [self showMenu:[self item:BattItemHeatProtection].submenu fromButton:sender];
+}
+
+- (void)showDiagnostics:(NSButton *)sender {
+    [self updateDiagnosticMenus];
+    NSMenu *diagnostics = [self.menu itemWithTitle:@"Diagnostics"].submenu;
+    [self showMenu:diagnostics fromButton:sender];
+}
+
+- (void)showCPUApps:(NSButton *)sender {
+    [self updateDiagnosticMenus];
+    [self showMenu:self.cpuAppsMenu fromButton:sender];
+}
+
+- (void)showMemoryApps:(NSButton *)sender {
+    [self updateDiagnosticMenus];
+    [self showMenu:self.memoryAppsMenu fromButton:sender];
+}
+
+- (void)showMoreMenu:(NSButton *)sender {
+    [self showMenu:self.menu fromButton:sender];
+}
+
+- (void)toggleDarkWorkFromPopover:(NSButton *)sender {
+    (void)sender;
+    [self toggleDarkWork];
+    [self refreshPopoverControls];
+}
+
+- (void)commitLimitFromRail:(BattPowerFlowView *)sender {
+    NSInteger requested = sender.displayedLimitPercent;
+    if (!battMenuSetLimit(_handle, (int)requested)) {
+        sender.limitPercent = sender.limitPercent;
+    }
+    [self refreshPopoverControls];
+}
+
+- (void)refreshPopoverControls {
+    self.chargeValue.stringValue = [NSString stringWithFormat:@"%ld%%  ›",
+        (long)self.powerFlowView.displayedLimitPercent];
+    NSString *heat = [self item:BattItemHeatProtection].title ?: @"Loading…";
+    NSRange colon = [heat rangeOfString:@": "];
+    heat = colon.location == NSNotFound ? heat :
+        [heat substringFromIndex:NSMaxRange(colon)];
+    if ([heat hasPrefix:@"paused"]) {
+        NSString *label = self.powerFlowView.pluggedIn ? @"Paused · " : @"Cooling · ";
+        heat = [heat stringByReplacingOccurrencesOfString:@"paused (" withString:label];
+        heat = [heat stringByReplacingOccurrencesOfString:@")" withString:@""];
+    } else if ([heat hasPrefix:@"on ("]) {
+        heat = [heat stringByReplacingOccurrencesOfString:@"on (" withString:@"On · "];
+        heat = [heat stringByReplacingOccurrencesOfString:@"°C → " withString:@"/"];
+        heat = [heat stringByReplacingOccurrencesOfString:@")" withString:@""];
+    } else if ([heat isEqualToString:@"off"]) {
+        heat = @"Off";
+    }
+    self.heatValue.stringValue = heat;
+    self.darkValue.stringValue = [self isDarkWorkActive] ? @"Restore Display" : @"Turn Screen Off";
+    self.statsButton.title = [NSString stringWithFormat:@"CPU %@",
+        _cpuPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _cpuPercent]];
+    self.memoryButton.title = [NSString stringWithFormat:@"RAM %@",
+        _memoryPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _memoryPercent]];
+    self.diskButton.title = [NSString stringWithFormat:@"SSD %@",
+        _diskPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _diskPercent]];
+    self.chargeButton.enabled = ![self item:BattItemQuickLimits].hidden;
+    self.heatButton.enabled = ![self item:BattItemHeatProtection].hidden;
+    self.powerFlowView.limitEditable = self.chargeButton.enabled &&
+        [self item:BattItemLimit80].enabled;
 }
 
 - (void)menuDidClose:(NSMenu *)menu {
     (void)menu;
-    [self.timer invalidate];
-    self.timer = nil;
 }
 
 - (void)timerTick:(NSTimer *)timer {
     (void)timer;
     battMenuTimerFired(_handle);
+}
+
+- (void)updateSystemStats:(NSTimer *)timer {
+    (void)timer;
+    host_cpu_load_info_data_t cpu;
+    mach_msg_type_number_t cpuCount = HOST_CPU_LOAD_INFO_COUNT;
+    if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
+                        (host_info_t)&cpu, &cpuCount) == KERN_SUCCESS) {
+        uint64_t totalDelta = 0;
+        uint64_t busyDelta = 0;
+        for (NSInteger i = 0; i < CPU_STATE_MAX; i++) {
+            uint64_t tick = cpu.cpu_ticks[i];
+            uint64_t delta = tick >= _previousCPUTicks[i] ? tick - _previousCPUTicks[i] : 0;
+            totalDelta += delta;
+            if (i != CPU_STATE_IDLE) busyDelta += delta;
+            _previousCPUTicks[i] = tick;
+        }
+        if (_hasCPUSample && totalDelta > 0)
+            _cpuPercent = 100.0 * busyDelta / totalDelta;
+        _hasCPUSample = YES;
+    }
+
+    vm_statistics64_data_t memory;
+    mach_msg_type_number_t memoryCount = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                          (host_info64_t)&memory, &memoryCount) == KERN_SUCCESS) {
+        uint64_t total = [NSProcessInfo processInfo].physicalMemory;
+        uint64_t available = ((uint64_t)memory.free_count +
+                              (uint64_t)memory.inactive_count +
+                              (uint64_t)memory.speculative_count) * (uint64_t)vm_page_size;
+        if (total > 0)
+            _memoryPercent = 100.0 * (1.0 - MIN(available, total) / (double)total);
+    }
+
+    if (_statsTickCount++ % 15 == 0) {
+        struct statfs volume;
+        if (statfs("/", &volume) == 0 && volume.f_blocks > 0) {
+            _diskPercent = 100.0 * (1.0 -
+                (double)volume.f_bavail / (double)volume.f_blocks);
+        }
+    }
+    [self refreshStatusImage];
+    [self updateAppStats];
+    [self refreshPopoverControls];
+}
+
+- (void)refreshStatusImage {
+    if (self.batteryIcon == nil) return;
+    NSImage *combined = [[[NSImage alloc] initWithSize:NSMakeSize(81, 24)] autorelease];
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:8.5
+                                                              weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: NSColor.whiteColor,
+    };
+    [combined lockFocus];
+    NSArray<NSString *> *labels = @[@"CPU", @"RAM", @"SSD"];
+    NSArray<NSString *> *values = @[
+        _cpuPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _cpuPercent],
+        _memoryPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _memoryPercent],
+        _diskPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _diskPercent],
+    ];
+    for (NSInteger i = 0; i < labels.count; i++) {
+        CGFloat y = 16 - i * 8;
+        [labels[i] drawAtPoint:NSMakePoint(1, y) withAttributes:attributes];
+        [values[i] drawAtPoint:NSMakePoint(26, y) withAttributes:attributes];
+    }
+    [self.batteryIcon drawInRect:NSMakeRect(54, 5, 25, 14)
+                       fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
+    [combined unlockFocus];
+    combined.template = NO;
+    self.statusItem.button.image = combined;
+    self.statusItem.button.title = @"";
 }
 
 - (void)setStatusIconInstalled:(BOOL)installed
@@ -152,6 +534,214 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     }
     self.statusItem.button.image = [NSImage imageWithSystemSymbolName:symbol
                                             accessibilityDescription:description];
+    self.statusItem.button.title = @"";
+    self.statusItem.button.contentTintColor = nil;
+}
+
+- (void)setLiveStatusCharge:(NSInteger)charge
+                   pluggedIn:(BOOL)pluggedIn
+                    charging:(BOOL)charging
+                 heatPaused:(BOOL)heatPaused {
+    charge = MAX(0, MIN(100, charge));
+    NSBundle *controlCenter = [NSBundle bundleWithPath:@"/System/Library/CoreServices/ControlCenter.app"];
+    NSImage *outline = [controlCenter imageForResource:@"battery-outline"];
+    NSImage *cap = [controlCenter imageForResource:@"battery-cap"];
+    NSString *overlayName = !pluggedIn ? nil : (charging ? @"battery-bolt" : @"battery-plug");
+    NSImage *overlay = overlayName == nil ? nil : [controlCenter imageForResource:overlayName];
+    NSImage *mask = overlayName == nil ? nil :
+        [controlCenter imageForResource:[overlayName stringByAppendingString:@"-mask"]];
+    NSImage *image = nil;
+    if (outline != nil && cap != nil) {
+        image = [[[NSImage alloc] initWithSize:NSMakeSize(25, 14)] autorelease];
+        [image lockFocus];
+        [NSColor.blackColor setFill];
+        NSRect fill = NSMakeRect(2, 3, 19.0 * charge / 100.0, 8);
+        [NSBezierPath fillRect:fill];
+        if (mask != nil) {
+            [mask drawInRect:NSMakeRect(7, 0, 11, 14) fromRect:NSZeroRect
+                  operation:NSCompositingOperationDestinationOut fraction:1];
+        }
+        [outline drawInRect:NSMakeRect(0, 1, 23, 12) fromRect:NSZeroRect
+                 operation:NSCompositingOperationSourceOver fraction:1];
+        [cap drawInRect:NSMakeRect(23, 1, 2, 12) fromRect:NSZeroRect
+             operation:NSCompositingOperationSourceOver fraction:1];
+        if (overlay != nil) {
+            [overlay drawInRect:NSMakeRect(7, 0, 11, 14) fromRect:NSZeroRect
+                     operation:NSCompositingOperationSourceOver fraction:1];
+        }
+        [image unlockFocus];
+    } else {
+        image = [NSImage imageWithSystemSymbolName:@"battery.100percent"
+                         accessibilityDescription:@"Battery"];
+    }
+    // Keep Control Center's exact outlines, but render them as a fixed white
+    // glyph: NSStatusBar does not reliably tint a composed template image.
+    NSColor *iconColor = !pluggedIn && charge <= 20 ? NSColor.systemRedColor
+        : ([NSProcessInfo processInfo].lowPowerModeEnabled
+            ? NSColor.systemYellowColor : NSColor.whiteColor);
+    [image lockFocus];
+    [iconColor setFill];
+    NSRectFillUsingOperation(NSMakeRect(0, 0, image.size.width, image.size.height),
+                             NSCompositingOperationSourceAtop);
+    [image unlockFocus];
+    image.template = NO;
+    self.batteryIcon = image;
+    [self refreshStatusImage];
+    self.statusItem.button.contentTintColor = nil;
+    NSString *state = heatPaused && pluggedIn ? @"heat protection paused charging" :
+        (charging ? @"charging" : (pluggedIn ? @"plugged in, not charging" : @"on battery"));
+    self.statusItem.button.toolTip = [NSString stringWithFormat:@"Battery %ld%%, %@", (long)charge, state];
+    self.statusItem.button.accessibilityLabel = self.statusItem.button.toolTip;
+    self.powerFlowView.chargePercent = charge;
+    self.powerFlowView.pluggedIn = pluggedIn;
+    self.powerFlowView.heatPaused = heatPaused;
+    [self.powerFlowView setNeedsDisplay:YES];
+    [self refreshPopoverControls];
+}
+
+- (void)setPowerFlowAdapter:(double)adapter
+                     system:(double)system
+                    battery:(double)battery
+                 heatPaused:(BOOL)heatPaused
+                temperature:(double)temperature {
+    NSString *summary = nil;
+    BOOL inconsistent = battery > 0.25 &&
+        (adapter < battery + 0.5 || system < 0.5);
+    if (inconsistent) {
+        summary = @"Power readings updating: adapter and battery data disagree";
+        [self item:BattItemPowerSystem].attributedTitle = nil;
+        [self item:BattItemPowerSystem].title = @"System: unavailable";
+    } else if (adapter > 0.1) {
+        summary = [NSString stringWithFormat:@"%.1f W adapter  →  %.1f W Mac", adapter, system];
+    } else if (battery < -0.1) {
+        summary = [NSString stringWithFormat:@"%.1f W battery  →  %.1f W Mac", fabs(battery), system];
+    } else {
+        summary = [NSString stringWithFormat:@"%.1f W powering the Mac", system];
+    }
+    [self item:BattItemPowerFlowSummary].title = summary;
+    self.powerFlowView.accessibilityLabel = summary;
+    if (heatPaused && adapter > 0.1) {
+        [self item:BattItemPowerBattery].title = [NSString stringWithFormat:@"Battery held: %.1f°C", temperature];
+    }
+    self.powerFlowView.adapterWatts = adapter;
+    self.powerFlowView.systemWatts = system;
+    self.powerFlowView.batteryWatts = battery;
+    self.powerFlowView.temperatureCelsius = temperature;
+    self.powerFlowView.heatPaused = heatPaused;
+    self.powerFlowView.hasTelemetry = YES;
+    [self.powerFlowView setNeedsDisplay:YES];
+}
+
+- (void)setLimitPercent:(NSInteger)limitPercent {
+    self.powerFlowView.limitPercent = limitPercent;
+    [self.powerFlowView setNeedsDisplay:YES];
+}
+
+- (NSString *)darkWorkToolPath {
+    NSString *bundled = [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"DarkWork"];
+    if (bundled != nil && [[NSFileManager defaultManager] isExecutableFileAtPath:bundled]) {
+        return bundled;
+    }
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Applications/Dark Work.app/Contents/MacOS/DarkWork"];
+}
+
+- (BOOL)isDarkWorkActive {
+    NSString *state = [NSHomeDirectory() stringByAppendingPathComponent:
+        @"Library/Application Support/DarkWork/state.json"];
+    return [[NSFileManager defaultManager] fileExistsAtPath:state];
+}
+
+- (void)toggleDarkWork {
+    BOOL active = [self isDarkWorkActive];
+    NSString *tool = [self darkWorkToolPath];
+    if (![[NSFileManager defaultManager] isExecutableFileAtPath:tool]) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        alert.messageText = @"Dark Work helper is missing";
+        alert.informativeText = @"Reinstall Batt Thermal to restore the screen-off helper.";
+        [alert runModal];
+        return;
+    }
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    task.executableURL = [NSURL fileURLWithPath:tool];
+    task.arguments = @[active ? @"--restore" : @"--activate"];
+    @try {
+        [task launch];
+        [self item:BattItemDarkWork].title = active
+            ? @"Dark Work: screen off, Mac awake"
+            : @"Dark Work: restore display";
+    } @catch (NSException *exception) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        alert.messageText = @"Could not toggle Dark Work";
+        alert.informativeText = exception.reason ?: @"Unknown error";
+        [alert runModal];
+    }
+}
+
+- (void)setCustomHeatProtection {
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    alert.messageText = @"Custom Heat Protection";
+    alert.informativeText = @"Pause battery charging at this temperature. Charging resumes only below the second temperature.";
+    [alert addButtonWithTitle:@"Apply"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSTextField *pause = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 80, 24)] autorelease];
+    pause.stringValue = @"33";
+    NSTextField *resume = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 80, 24)] autorelease];
+    resume.stringValue = @"30";
+    NSTextField *pauseLabel = [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease];
+    pauseLabel.stringValue = @"Pause at (°C)";
+    pauseLabel.editable = NO;
+    pauseLabel.bordered = NO;
+    pauseLabel.drawsBackground = NO;
+    NSTextField *resumeLabel = [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease];
+    resumeLabel.stringValue = @"Resume below (°C)";
+    resumeLabel.editable = NO;
+    resumeLabel.bordered = NO;
+    resumeLabel.drawsBackground = NO;
+    NSStackView *accessory = [NSStackView stackViewWithViews:@[
+        pauseLabel, pause, resumeLabel, resume
+    ]];
+    accessory.orientation =NSUserInterfaceLayoutOrientationVertical;
+    accessory.alignment = NSLayoutAttributeLeading;
+    accessory.spacing = 4;
+    alert.accessoryView = accessory;
+
+    if ([alert runModal] != NSAlertFirstButtonReturn) {
+        return;
+    }
+    double pauseAt = pause.doubleValue;
+    double resumeAt = resume.doubleValue;
+    if (!isfinite(pauseAt) || !isfinite(resumeAt) || pauseAt <= 0 || resumeAt <= 0 || resumeAt >= pauseAt) {
+        NSAlert *error = [[[NSAlert alloc] init] autorelease];
+        error.messageText = @"Invalid heat protection thresholds";
+        error.informativeText = @"Both temperatures must be above 0°C, and resume must be lower than pause.";
+        [error runModal];
+        return;
+    }
+
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/local/bin/batt-thermal"];
+    task.arguments = @[
+        @"--daemon-socket=/var/run/batt-thermal.sock",
+        @"heat-protection", @"set",
+        [NSString stringWithFormat:@"%.1f", pauseAt],
+        [NSString stringWithFormat:@"%.1f", resumeAt],
+    ];
+    @try {
+        [task launch];
+        [task waitUntilExit];
+        if (task.terminationStatus != 0) {
+            NSAlert *error = [[[NSAlert alloc] init] autorelease];
+            error.messageText = @"Could not update heat protection";
+            error.informativeText = @"The batt daemon did not accept the thresholds.";
+            [error runModal];
+        }
+    } @catch (NSException *exception) {
+        NSAlert *error = [[[NSAlert alloc] init] autorelease];
+        error.messageText = @"Could not update heat protection";
+        error.informativeText = exception.reason ?: @"Unknown error";
+        [error runModal];
+    }
 }
 
 - (void)setPowerItem:(BattMenuItem)item label:(NSString *)label value:(double)value {
@@ -188,7 +778,72 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 
 void BattBuildMenu(BattMenuController *controller, NSString *version) {
     NSMenu *root = controller.menu;
-    NSMenu *power = AddSubmenu(controller, root, @"Power Flow", BattItemPowerFlow);
+    NSMenuItem *flowCanvas = [[[NSMenuItem alloc] initWithTitle:@"Power Flow"
+                                                         action:nil keyEquivalent:@""] autorelease];
+    [controller rememberItem:flowCanvas as:BattItemPowerFlowCanvas];
+
+    NSMenu *limits = AddSubmenu(controller, root, @"Charge Limit", BattItemQuickLimits);
+    const NSInteger limitValues[] = {50, 60, 70, 80, 90};
+    const BattMenuItem limitItems[] = {
+        BattItemLimit50, BattItemLimit60, BattItemLimit70, BattItemLimit80, BattItemLimit90,
+    };
+    for (NSUInteger index = 0; index < 5; index++) {
+        NSInteger limit = limitValues[index];
+        NSString *title = [NSString stringWithFormat:@"%ld%%", (long)limit];
+        NSString *key = [NSString stringWithFormat:@"%ld", (long)limit];
+        [limits addItem:ActionItem(controller, title, key, limitItems[index])];
+    }
+
+    NSMenu *disableLimit = AddSubmenu(controller, limits, @"Temporarily Disable Limit",
+                                      BattItemDisableLimit);
+    NSMenuItem *disableCountdown = DisplayItem(controller, @"",
+                                                BattItemDisableLimitCountdown, NO);
+    disableCountdown.hidden = YES;
+    [disableLimit addItem:disableCountdown];
+    [disableLimit addItem:ActionItem(controller, @"Indefinitely", @"d",
+                                      BattItemDisableLimitIndefinitely)];
+    [disableLimit addItem:[NSMenuItem separatorItem]];
+    [disableLimit addItem:ActionItem(controller, @"1 Hour", @"",
+                                      BattItemDisableLimit1Hour)];
+    [disableLimit addItem:ActionItem(controller, @"2 Hours", @"",
+                                      BattItemDisableLimit2Hours)];
+    [disableLimit addItem:ActionItem(controller, @"4 Hours", @"",
+                                      BattItemDisableLimit4Hours)];
+    [disableLimit addItem:ActionItem(controller, @"8 Hours", @"",
+                                      BattItemDisableLimit8Hours)];
+    [disableLimit addItem:ActionItem(controller, @"12 Hours", @"",
+                                      BattItemDisableLimit12Hours)];
+    [disableLimit addItem:ActionItem(controller, @"24 Hours", @"",
+                                      BattItemDisableLimit24Hours)];
+    [disableLimit addItem:ActionItem(controller, @"2 Days", @"",
+                                      BattItemDisableLimit2Days)];
+    [disableLimit addItem:ActionItem(controller, @"3 Days", @"",
+                                      BattItemDisableLimit3Days)];
+    [disableLimit addItem:ActionItem(controller, @"7 Days", @"",
+                                      BattItemDisableLimit7Days)];
+
+    NSMenu *heat = AddSubmenu(controller, root, @"Heat Protection: Loading...", BattItemHeatProtection);
+    [heat addItem:ActionItem(controller, @"Off", @"", BattItemHeatOff)];
+    [heat addItem:ActionItem(controller, @"Strict: pause 32°C, resume 29°C", @"", BattItemHeatStrict)];
+    [heat addItem:ActionItem(controller, @"Balanced: pause 33°C, resume 30°C", @"", BattItemHeatBalanced)];
+    [heat addItem:ActionItem(controller, @"Relaxed: pause 35°C, resume 32°C", @"", BattItemHeatRelaxed)];
+    [heat addItem:[NSMenuItem separatorItem]];
+    [heat addItem:ActionItem(controller, @"Custom…", @"", BattItemHeatCustom)];
+    [root addItem:ActionItem(controller, @"Dark Work: screen off, Mac awake", @"", BattItemDarkWork)];
+
+    [root addItem:[NSMenuItem separatorItem]];
+    NSMenu *diagnostics = [[[NSMenu alloc] initWithTitle:@"Diagnostics"] autorelease];
+    diagnostics.autoenablesItems = NO;
+    NSMenuItem *diagnosticsItem = [[[NSMenuItem alloc] initWithTitle:@"Diagnostics"
+                                                             action:nil keyEquivalent:@""] autorelease];
+    diagnosticsItem.submenu = diagnostics;
+    [root addItem:diagnosticsItem];
+    NSMenu *power = AddSubmenu(controller, diagnostics, @"Power Details", BattItemPowerFlow);
+    [power addItem:DisplayItem(controller, @"Loading power flow...", BattItemPowerFlowSummary, NO)];
+    [power addItem:[NSMenuItem separatorItem]];
+    [power addItem:DisplayItem(controller, @"Loading...", BattItemState, NO)];
+    [power addItem:DisplayItem(controller, @"Loading...", BattItemCurrentLimit, NO)];
+    [power addItem:[NSMenuItem separatorItem]];
     [power addItem:DisplayItem(controller, @"", BattItemPowerSystem, YES)];
     [power addItem:DisplayItem(controller, @"", BattItemPowerAdapter, YES)];
     [power addItem:DisplayItem(controller, @"", BattItemPowerBattery, YES)];
@@ -196,25 +851,19 @@ void BattBuildMenu(BattMenuController *controller, NSString *version) {
     [controller setPowerItem:BattItemPowerAdapter label:@"Adapter" value:0];
     [controller setPowerItem:BattItemPowerBattery label:@"Battery" value:0];
 
+    NSMenuItem *cpuApps = [[[NSMenuItem alloc] initWithTitle:@"Top CPU Apps"
+                                                    action:nil keyEquivalent:@""] autorelease];
+    controller.cpuAppsMenu = [[[NSMenu alloc] initWithTitle:@"Top CPU Apps"] autorelease];
+    cpuApps.submenu = controller.cpuAppsMenu;
+    [diagnostics addItem:cpuApps];
+    NSMenuItem *memoryApps = [[[NSMenuItem alloc] initWithTitle:@"Top RAM Apps"
+                                                       action:nil keyEquivalent:@""] autorelease];
+    controller.memoryAppsMenu = [[[NSMenu alloc] initWithTitle:@"Top RAM Apps"] autorelease];
+    memoryApps.submenu = controller.memoryAppsMenu;
+    [diagnostics addItem:memoryApps];
+
     [root addItem:ActionItem(controller, @"Upgrade Daemon...", @"u", BattItemUpgrade)];
     [root addItem:ActionItem(controller, @"Install Daemon...", @"i", BattItemInstall)];
-    [root addItem:DisplayItem(controller, @"Loading...", BattItemState, NO)];
-    [root addItem:DisplayItem(controller, @"Loading...", BattItemCurrentLimit, NO)];
-    [root addItem:[NSMenuItem separatorItem]];
-    [root addItem:DisplayItem(controller, @"Quick Limits", BattItemQuickLimits, NO)];
-
-    const NSInteger limits[] = {50, 60, 70, 80, 90};
-    const BattMenuItem limitItems[] = {
-        BattItemLimit50, BattItemLimit60, BattItemLimit70, BattItemLimit80, BattItemLimit90,
-    };
-    for (NSUInteger index = 0; index < 5; index++) {
-        NSInteger limit = limits[index];
-        NSString *title = [NSString stringWithFormat:@"Set %ld%% Limit", (long)limit];
-        NSString *key = [NSString stringWithFormat:@"%ld", (long)limit];
-        [root addItem:ActionItem(controller, title, key, limitItems[index])];
-    }
-
-    [root addItem:[NSMenuItem separatorItem]];
     NSMenu *advanced = AddSubmenu(controller, root, @"Advanced", BattItemAdvanced);
     NSMenu *magSafe = AddSubmenu(controller, advanced, @"Control MagSafe LED", BattItemMagSafe);
     [magSafe addItem:ActionItem(controller, @"Enable", @"", BattItemMagSafeEnabled)];
@@ -263,33 +912,5 @@ void BattBuildMenu(BattMenuController *controller, NSString *version) {
     [advanced addItem:DisplayItem(controller, versionTitle, BattItemVersion, NO)];
     [advanced addItem:ActionItem(controller, @"Uninstall Daemon...", @"", BattItemUninstall)];
 
-    [root addItem:[NSMenuItem separatorItem]];
-    NSMenu *disableLimit = AddSubmenu(controller, root, @"Disable Charge Limit",
-                                      BattItemDisableLimit);
-    NSMenuItem *disableCountdown = DisplayItem(controller, @"",
-                                                BattItemDisableLimitCountdown, NO);
-    disableCountdown.hidden = YES;
-    [disableLimit addItem:disableCountdown];
-    [disableLimit addItem:ActionItem(controller, @"Indefinitely", @"d",
-                                      BattItemDisableLimitIndefinitely)];
-    [disableLimit addItem:[NSMenuItem separatorItem]];
-    [disableLimit addItem:ActionItem(controller, @"1 Hour", @"",
-                                      BattItemDisableLimit1Hour)];
-    [disableLimit addItem:ActionItem(controller, @"2 Hours", @"",
-                                      BattItemDisableLimit2Hours)];
-    [disableLimit addItem:ActionItem(controller, @"4 Hours", @"",
-                                      BattItemDisableLimit4Hours)];
-    [disableLimit addItem:ActionItem(controller, @"8 Hours", @"",
-                                      BattItemDisableLimit8Hours)];
-    [disableLimit addItem:ActionItem(controller, @"12 Hours", @"",
-                                      BattItemDisableLimit12Hours)];
-    [disableLimit addItem:ActionItem(controller, @"24 Hours", @"",
-                                      BattItemDisableLimit24Hours)];
-    [disableLimit addItem:ActionItem(controller, @"2 Days", @"",
-                                      BattItemDisableLimit2Days)];
-    [disableLimit addItem:ActionItem(controller, @"3 Days", @"",
-                                      BattItemDisableLimit3Days)];
-    [disableLimit addItem:ActionItem(controller, @"7 Days", @"",
-                                      BattItemDisableLimit7Days)];
     [root addItem:ActionItem(controller, @"Quit Menubar App", @"q", BattItemQuit)];
 }

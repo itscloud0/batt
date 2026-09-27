@@ -31,6 +31,14 @@ func (c *menuController) handleAction(item menuItem, checked bool) {
 		c.setDisableChargingPreSleep(checked)
 	case itemPreventSystemSleep:
 		c.setPreventSystemSleep(checked)
+	case itemHeatOff:
+		c.setHeatProtection(false, 33, 30)
+	case itemHeatStrict:
+		c.setHeatProtection(true, 32, 29)
+	case itemHeatBalanced:
+		c.setHeatProtection(true, 33, 30)
+	case itemHeatRelaxed:
+		c.setHeatProtection(true, 35, 32)
 	case itemForceDischargeStop:
 		c.stopForceDischarge()
 	case itemForceDischargeIndefinitely:
@@ -67,6 +75,14 @@ func (c *menuController) handleAction(item menuItem, checked bool) {
 	}
 }
 
+func (c *menuController) setHeatProtection(enabled bool, pauseAt, resumeAt float64) {
+	if _, err := c.api.SetHeatProtection(enabled, pauseAt, resumeAt); err != nil {
+		showAlert("Failed to set heat protection", err.Error())
+		return
+	}
+	c.refreshOnOpen()
+}
+
 func (c *menuController) installOrUpgrade() {
 	executable, err := os.Executable()
 	if err != nil {
@@ -87,12 +103,15 @@ func (c *menuController) installOrUpgrade() {
 	c.menu.setStatusIcon(true, true, false)
 }
 
-func (c *menuController) setLimit(limit int) {
+func (c *menuController) setLimit(limit int) bool {
 	response, err := c.api.SetLimit(limit)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to set limit")
 		showAlert("Failed to set limit", response+err.Error())
+		return false
 	}
+	c.refreshOnOpen()
+	return true
 }
 
 func (c *menuController) setMagSafeMode(mode config.ControlMagSafeMode) {

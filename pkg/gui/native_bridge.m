@@ -74,3 +74,37 @@ void batt_menu_set_power(BattMenuRef menu, int item, const char *label, double v
         [BattController(menu) setPowerItem:(BattMenuItem)item label:BattString(label) value:value];
     }
 }
+
+void batt_menu_set_power_flow(BattMenuRef menu,
+                              double adapter,
+                              double system,
+                              double battery,
+                              bool heat_paused,
+                              double temperature_celsius) {
+    @autoreleasepool {
+        [BattController(menu) setPowerFlowAdapter:adapter
+                                           system:system
+                                          battery:battery
+                                       heatPaused:heat_paused
+                                      temperature:temperature_celsius];
+    }
+}
+
+void batt_menu_set_limit(BattMenuRef menu, int limit_percent) {
+    @autoreleasepool {
+        [BattController(menu) setLimitPercent:limit_percent];
+    }
+}
+
+void batt_menu_set_live_status(BattMenuRef menu,
+                               int charge_percent,
+                               bool plugged_in,
+                               bool charging,
+                               bool heat_paused) {
+    @autoreleasepool {
+        [BattController(menu) setLiveStatusCharge:charge_percent
+                                         pluggedIn:plugged_in
+                                          charging:charging
+                                       heatPaused:heat_paused];
+    }
+}

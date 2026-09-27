@@ -54,6 +54,8 @@ func Run(unixSocketPath string) {
 	}()
 
 	controller.refreshCompatibility()
+	controller.refreshOnOpen()
+	controller.updateTelemetry()
 	go controller.subscribeEvents(ctx)
 	runNativeApp()
 }

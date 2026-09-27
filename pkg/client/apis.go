@@ -60,6 +60,41 @@ func (c *Client) SetPreventSystemSleep(enabled bool) (string, error) {
 	return c.Put("/prevent-system-sleep", strconv.FormatBool(enabled))
 }
 
+func (c *Client) SetHeatProtection(enabled bool, pauseTemperatureCelsius, resumeTemperatureCelsius float64) (string, error) {
+	payload, err := json.Marshal(struct {
+		Enabled                  bool    `json:"enabled"`
+		PauseTemperatureCelsius  float64 `json:"pauseTemperatureCelsius"`
+		ResumeTemperatureCelsius float64 `json:"resumeTemperatureCelsius"`
+	}{enabled, pauseTemperatureCelsius, resumeTemperatureCelsius})
+	if err != nil {
+		return "", err
+	}
+	return c.Put("/heat-protection", string(payload))
+}
+
+type HeatProtectionStatus struct {
+	Enabled                  bool      `json:"enabled"`
+	Paused                   bool      `json:"paused"`
+	TemperatureCelsius       *float64  `json:"temperatureCelsius,omitempty"`
+	PauseTemperatureCelsius  float64   `json:"pauseTemperatureCelsius"`
+	ResumeTemperatureCelsius float64   `json:"resumeTemperatureCelsius"`
+	LastError                string    `json:"lastError,omitempty"`
+	UpdatedAt                time.Time `json:"updatedAt"`
+}
+
+func (c *Client) GetHeatProtection() (*HeatProtectionStatus, error) {
+	ret, err := c.Get("/heat-protection")
+	if err != nil {
+		return nil, pkgerrors.Wrapf(err, "failed to get heat protection status")
+	}
+
+	var status HeatProtectionStatus
+	if err := json.Unmarshal([]byte(ret), &status); err != nil {
+		return nil, pkgerrors.Wrapf(err, "failed to unmarshal heat protection status")
+	}
+	return &status, nil
+}
+
 func (c *Client) SetControlMagSafeLED(mode config.ControlMagSafeMode) (string, error) {
 	payload, err := json.Marshal(mode)
 	if err != nil {

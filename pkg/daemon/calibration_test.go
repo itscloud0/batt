@@ -23,6 +23,9 @@ type mockConf struct {
 	disableUntil        time.Time
 	preDisableLimit     int
 	adapterDisableUntil time.Time
+	heatProtection      bool
+	heatPause           float64
+	heatResume          float64
 }
 
 func (m *mockConf) UpperLimit() int               { return m.upper }
@@ -64,7 +67,21 @@ func (m *mockConf) AdapterDisableUntil() time.Time { return m.adapterDisableUnti
 func (m *mockConf) SetAdapterDisableTimer(until time.Time) {
 	m.adapterDisableUntil = until
 }
-func (m *mockConf) ClearAdapterDisableTimer() { m.adapterDisableUntil = time.Time{} }
+func (m *mockConf) ClearAdapterDisableTimer()   { m.adapterDisableUntil = time.Time{} }
+func (m *mockConf) HeatProtectionEnabled() bool { return m.heatProtection }
+func (m *mockConf) HeatPauseTemperatureCelsius() float64 {
+	if m.heatPause == 0 {
+		return 35
+	}
+	return m.heatPause
+}
+func (m *mockConf) HeatResumeTemperatureCelsius() float64 {
+	if m.heatResume == 0 {
+		return 32
+	}
+	return m.heatResume
+}
+func (m *mockConf) SetHeatProtection(bool, float64, float64) {}
 
 // Fake smcConn implementation.
 type fakeSMC struct {

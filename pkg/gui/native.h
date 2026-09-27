@@ -7,7 +7,9 @@
 typedef void *BattMenuRef;
 
 typedef enum {
-    BattItemPowerFlow = 1,
+    BattItemPowerFlowCanvas = 1,
+    BattItemPowerFlow,
+    BattItemPowerFlowSummary,
     BattItemPowerSystem,
     BattItemPowerAdapter,
     BattItemPowerBattery,
@@ -29,6 +31,13 @@ typedef enum {
     BattItemPreventIdleSleep,
     BattItemDisableChargingPreSleep,
     BattItemPreventSystemSleep,
+    BattItemHeatProtection,
+    BattItemHeatOff,
+    BattItemHeatStrict,
+    BattItemHeatBalanced,
+    BattItemHeatRelaxed,
+    BattItemHeatCustom,
+    BattItemDarkWork,
     BattItemForceDischarge,
     BattItemForceDischargeCountdown,
     BattItemForceDischargeStop,
@@ -78,6 +87,11 @@ void batt_menu_set_enabled(BattMenuRef menu, int item, bool enabled);
 void batt_menu_set_checked(BattMenuRef menu, int item, bool checked);
 void batt_menu_set_status_icon(BattMenuRef menu, bool installed, bool capable, bool needs_upgrade);
 void batt_menu_set_power(BattMenuRef menu, int item, const char *label, double value);
+void batt_menu_set_power_flow(BattMenuRef menu, double adapter, double system, double battery,
+                              bool heat_paused, double temperature_celsius);
+void batt_menu_set_limit(BattMenuRef menu, int limit_percent);
+void batt_menu_set_live_status(BattMenuRef menu, int charge_percent, bool plugged_in,
+                               bool charging, bool heat_paused);
 
 void batt_show_alert(const char *message, const char *body);
 bool batt_show_confirmation(int confirmation);
@@ -91,5 +105,6 @@ bool batt_is_login_item_registered(void);
 extern void battMenuWillOpen(uintptr_t handle);
 extern void battMenuTimerFired(uintptr_t handle);
 extern void battMenuAction(uintptr_t handle, int item, bool checked);
+extern bool battMenuSetLimit(uintptr_t handle, int limit_percent);
 
 #endif

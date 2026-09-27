@@ -259,6 +259,52 @@ func setPreventSystemSleep(c *gin.Context) {
 	c.IndentedJSON(http.StatusCreated, "ok")
 }
 
+type heatProtectionRequest struct {
+	Enabled                  bool    `json:"enabled"`
+	PauseTemperatureCelsius  float64 `json:"pauseTemperatureCelsius"`
+	ResumeTemperatureCelsius float64 `json:"resumeTemperatureCelsius"`
+}
+
+func getHeatProtection(c *gin.Context) {
+	c.IndentedJSON(http.StatusOK, getHeatProtectionStatus())
+}
+
+func setHeatProtection(c *gin.Context) {
+	if !requireCapability(c, compatibility.FeatureChargingControl) {
+		return
+	}
+
+	var request heatProtectionRequest
+	if err := c.BindJSON(&request); err != nil {
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+		_ = c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+	if request.PauseTemperatureCelsius < 20 || request.PauseTemperatureCelsius > 60 {
+		err := fmt.Errorf("heat pause temperature must be between 20 and 60 Celsius, got %.1f", request.PauseTemperatureCelsius)
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+		_ = c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+	if request.ResumeTemperatureCelsius < 10 || request.ResumeTemperatureCelsius >= request.PauseTemperatureCelsius {
+		err := fmt.Errorf("heat resume temperature must be between 10 Celsius and the pause temperature, got %.1f", request.ResumeTemperatureCelsius)
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+		_ = c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	conf.SetHeatProtection(request.Enabled, request.PauseTemperatureCelsius, request.ResumeTemperatureCelsius)
+	if err := conf.Save(); err != nil {
+		logrus.Errorf("saveConfig failed: %v", err)
+		c.IndentedJSON(http.StatusInternalServerError, err.Error())
+		_ = c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	maintainLoopForced()
+	c.IndentedJSON(http.StatusCreated, "ok")
+}
+
 func setAdapter(c *gin.Context) {
 	if !requireCapability(c, compatibility.FeatureAdapterControl) {
 		return

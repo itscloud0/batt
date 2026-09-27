@@ -8,19 +8,21 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/charlie0129/batt/pkg/calibration"
+	"github.com/charlie0129/batt/pkg/client"
 	"github.com/charlie0129/batt/pkg/compatibility"
 	"github.com/charlie0129/batt/pkg/config"
 	"github.com/charlie0129/batt/pkg/powerinfo"
 )
 
 type statusData struct {
-	charging      bool
-	pluggedIn     bool
-	adapter       bool
-	currentCharge int
-	batteryInfo   *powerinfo.Battery
-	config        *config.RawFileConfig
-	capabilities  compatibility.Capabilities
+	charging       bool
+	pluggedIn      bool
+	adapter        bool
+	currentCharge  int
+	batteryInfo    *powerinfo.Battery
+	config         *config.RawFileConfig
+	capabilities   compatibility.Capabilities
+	heatProtection *client.HeatProtectionStatus
 }
 
 // computeTimeToLimit calculates the estimated minutes until the charge limit is
@@ -99,14 +101,20 @@ func fetchStatusData() (*statusData, error) {
 		}
 	}
 
+	heatProtection, err := apiClient.GetHeatProtection()
+	if err != nil {
+		heatProtection = nil
+	}
+
 	return &statusData{
-		charging:      charging,
-		pluggedIn:     pluggedIn,
-		adapter:       adapter,
-		currentCharge: currentCharge,
-		batteryInfo:   bat,
-		config:        conf,
-		capabilities:  capabilities,
+		charging:       charging,
+		pluggedIn:      pluggedIn,
+		adapter:        adapter,
+		currentCharge:  currentCharge,
+		batteryInfo:    bat,
+		config:         conf,
+		capabilities:   capabilities,
+		heatProtection: heatProtection,
 	}, nil
 }
 
@@ -250,6 +258,18 @@ func NewStatusCommand() *cobra.Command {
 				cmd.Println("  Legacy sleep controls: " + bold("unsupported/not required"))
 			}
 			cmd.Printf("  Allow non-root users to access the daemon: %s\n", bool2Text(cfg.AllowNonRootAccess()))
+			if cfg.HeatProtectionEnabled() {
+				state := "monitoring"
+				if data.heatProtection != nil && data.heatProtection.Paused {
+					state = "charging paused"
+				}
+				cmd.Printf("  Heat protection: %s (pause ≥ %.1f°C; resume ≤ %.1f°C; %s)\n", bool2Text(true), cfg.HeatPauseTemperatureCelsius(), cfg.HeatResumeTemperatureCelsius(), state)
+				if data.heatProtection != nil && data.heatProtection.TemperatureCelsius != nil {
+					cmd.Printf("    Battery temperature: %.2f°C\n", *data.heatProtection.TemperatureCelsius)
+				}
+			} else {
+				cmd.Println("  Heat protection: " + bool2Text(false))
+			}
 
 			if data.capabilities.MagSafeLED {
 				mode := cfg.ControlMagSafeLED()

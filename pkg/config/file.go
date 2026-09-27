@@ -30,12 +30,15 @@ const (
 
 var (
 	defaultFileConfig = &RawFileConfig{
-		Limit:                   ptr.To(80),
-		PreventIdleSleep:        ptr.To(true),
-		DisableChargingPreSleep: ptr.To(true),
-		PreventSystemSleep:      ptr.To(false),
-		AllowNonRootAccess:      ptr.To(false),
-		LowerLimitDelta:         ptr.To(2),
+		Limit:                        ptr.To(80),
+		PreventIdleSleep:             ptr.To(true),
+		DisableChargingPreSleep:      ptr.To(true),
+		PreventSystemSleep:           ptr.To(false),
+		AllowNonRootAccess:           ptr.To(false),
+		LowerLimitDelta:              ptr.To(2),
+		HeatProtectionEnabled:        ptr.To(false),
+		HeatPauseTemperatureCelsius:  ptr.To(35.0),
+		HeatResumeTemperatureCelsius: ptr.To(32.0),
 
 		CalibrationDischargeThreshold:  ptr.To(15),
 		CalibrationHoldDurationMinutes: ptr.To(120),
@@ -127,6 +130,10 @@ type RawFileConfig struct {
 	PreDisableLimit *int       `json:"preDisableLimit,omitempty"`
 
 	AdapterDisableUntil *time.Time `json:"adapterDisableUntil,omitempty"`
+
+	HeatProtectionEnabled        *bool    `json:"heatProtectionEnabled,omitempty"`
+	HeatPauseTemperatureCelsius  *float64 `json:"heatPauseTemperatureCelsius,omitempty"`
+	HeatResumeTemperatureCelsius *float64 `json:"heatResumeTemperatureCelsius,omitempty"`
 }
 
 func NewRawFileConfigFromConfig(c Config) (*RawFileConfig, error) {
@@ -135,14 +142,17 @@ func NewRawFileConfigFromConfig(c Config) (*RawFileConfig, error) {
 	}
 
 	rawConfig := &RawFileConfig{
-		Limit:                   ptr.To(c.UpperLimit()),
-		PreventIdleSleep:        ptr.To(c.PreventIdleSleep()),
-		DisableChargingPreSleep: ptr.To(c.DisableChargingPreSleep()),
-		PreventSystemSleep:      ptr.To(c.PreventSystemSleep()),
-		AllowNonRootAccess:      ptr.To(c.AllowNonRootAccess()),
-		LowerLimitDelta:         ptr.To(c.UpperLimit() - c.LowerLimit()),
-		ControlMagSafeLED:       ptr.To(c.ControlMagSafeLED()),
-		Cron:                    ptr.To(c.Cron()),
+		Limit:                        ptr.To(c.UpperLimit()),
+		PreventIdleSleep:             ptr.To(c.PreventIdleSleep()),
+		DisableChargingPreSleep:      ptr.To(c.DisableChargingPreSleep()),
+		PreventSystemSleep:           ptr.To(c.PreventSystemSleep()),
+		AllowNonRootAccess:           ptr.To(c.AllowNonRootAccess()),
+		LowerLimitDelta:              ptr.To(c.UpperLimit() - c.LowerLimit()),
+		ControlMagSafeLED:            ptr.To(c.ControlMagSafeLED()),
+		HeatProtectionEnabled:        ptr.To(c.HeatProtectionEnabled()),
+		HeatPauseTemperatureCelsius:  ptr.To(c.HeatPauseTemperatureCelsius()),
+		HeatResumeTemperatureCelsius: ptr.To(c.HeatResumeTemperatureCelsius()),
+		Cron:                         ptr.To(c.Cron()),
 	}
 
 	if until := c.DisableUntil(); !until.IsZero() {
@@ -569,6 +579,63 @@ func (f *File) ClearAdapterDisableTimer() {
 	f.c.AdapterDisableUntil = nil
 }
 
+func (f *File) HeatProtectionEnabled() bool {
+	if f.c == nil {
+		panic("config is nil")
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.c.HeatProtectionEnabled != nil {
+		return *f.c.HeatProtectionEnabled
+	}
+	return *defaultFileConfig.HeatProtectionEnabled
+}
+
+func (f *File) HeatPauseTemperatureCelsius() float64 {
+	if f.c == nil {
+		panic("config is nil")
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.c.HeatPauseTemperatureCelsius != nil {
+		return *f.c.HeatPauseTemperatureCelsius
+	}
+	return *defaultFileConfig.HeatPauseTemperatureCelsius
+}
+
+func (f *File) HeatResumeTemperatureCelsius() float64 {
+	if f.c == nil {
+		panic("config is nil")
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.c.HeatResumeTemperatureCelsius != nil {
+		return *f.c.HeatResumeTemperatureCelsius
+	}
+	return *defaultFileConfig.HeatResumeTemperatureCelsius
+}
+
+func (f *File) SetHeatProtection(enabled bool, pauseTemperatureCelsius, resumeTemperatureCelsius float64) {
+	if f.c == nil {
+		panic("config is nil")
+	}
+	if pauseTemperatureCelsius < 20 || pauseTemperatureCelsius > 60 {
+		panic("heat pause temperature must be between 20 and 60 Celsius")
+	}
+	if resumeTemperatureCelsius < 10 || resumeTemperatureCelsius >= pauseTemperatureCelsius {
+		panic("heat resume temperature must be between 10 Celsius and the pause temperature")
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.c.HeatProtectionEnabled = ptr.To(enabled)
+	f.c.HeatPauseTemperatureCelsius = ptr.To(pauseTemperatureCelsius)
+	f.c.HeatResumeTemperatureCelsius = ptr.To(resumeTemperatureCelsius)
+}
+
 func (f *File) Load() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -657,5 +724,8 @@ func (f *File) LogrusFields() logrus.Fields {
 		"preventSystemSleep":      f.PreventSystemSleep(),
 		"allowNonRootAccess":      f.AllowNonRootAccess(),
 		"controlMagsafeLed":       f.ControlMagSafeLED(),
+		"heatProtectionEnabled":   f.HeatProtectionEnabled(),
+		"heatPauseTemperatureC":   f.HeatPauseTemperatureCelsius(),
+		"heatResumeTemperatureC":  f.HeatResumeTemperatureCelsius(),
 	}
 }

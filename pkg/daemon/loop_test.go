@@ -147,6 +147,74 @@ func TestMaintainLoopHonorsDisabledPreSleepChargingProtection(t *testing.T) {
 	}
 }
 
+func TestHeatProtectionPausesBatteryChargingWithoutDisablingAdapter(t *testing.T) {
+	value := func(key string, dataType gosmc.DataType, data ...byte) gosmc.Value {
+		v, err := gosmc.NewValue(key, dataType, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	mock := smc.NewMockValues(
+		value(smc.ChargingKey1, gosmc.TypeUInt8, 0),
+		value(smc.ChargingKey2, gosmc.TypeUInt8, 0),
+		value(smc.AdapterKey1, gosmc.TypeUInt8, 0),
+		value(smc.BatteryChargeKey, gosmc.TypeUInt8, 70),
+		value(smc.ACPowerKey, gosmc.TypeUInt8, 1),
+	)
+	if err := mock.Open(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mock.Close() })
+
+	previousSMC, previousConf, previousCapabilities := smcConn, conf, capabilities
+	previousRecorder, previousTemperatureReader, previousHeatStatus := loopRecorder, readBatteryTemperatureCelsius, getHeatProtectionStatus()
+	t.Cleanup(func() {
+		smcConn, conf, capabilities = previousSMC, previousConf, previousCapabilities
+		loopRecorder, readBatteryTemperatureCelsius = previousRecorder, previousTemperatureReader
+		heatProtectionMu.Lock()
+		heatProtectionStatus = previousHeatStatus
+		heatProtectionMu.Unlock()
+	})
+
+	smcConn = mock
+	conf = &mockConf{upper: 80, lower: 78, heatProtection: true, heatPause: 33, heatResume: 30}
+	capabilities = compatibility.Capabilities{ChargingControl: true, ChargeControlMode: compatibility.ChargeControlLegacy, AdapterControl: true}
+	loopRecorder = NewTimeSeriesRecorder(60)
+	readBatteryTemperatureCelsius = func() (float64, error) { return 33, nil }
+
+	if !maintainLoop() {
+		t.Fatal("maintain loop failed while hot")
+	}
+	charging, err := mock.IsChargingEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if charging {
+		t.Fatal("heat protection enabled battery charging")
+	}
+	adapter, err := mock.IsAdapterEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adapter {
+		t.Fatal("heat protection disabled the power adapter")
+	}
+
+	readBatteryTemperatureCelsius = func() (float64, error) { return 30, nil }
+	if !maintainLoop() {
+		t.Fatal("maintain loop failed after cooling")
+	}
+	charging, err = mock.IsChargingEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !charging {
+		t.Fatal("charging did not resume after cooling below the hysteresis threshold")
+	}
+}
+
 func TestRestoreDisabledLimit(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
