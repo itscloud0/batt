@@ -15,7 +15,7 @@ WattNook answers two questions without making you open three utilities: **what i
 
 WattNook began as a public fork of [Charlie Chiang's batt](https://github.com/charlie0129/batt). Its charging control and daemon remain the foundation; the menu-bar UI, heat protection, system diagnostics, and screen-off helper are additions here. Git history and the original [GPL-2.0 license](LICENSE) are retained. This project is independent of AlDente and CleanMyMac; neither their branding nor proprietary UI code is included.
 
-The CLI and daemon retain the `batt-thermal` name during this transition so existing charge-limit installations do not break. **WattNook** is the user-facing app name. The GitHub repository remains `itscloud0/batt` because GitHub forks preserve their parent relationship.
+The CLI and daemon retain the `batt-thermal` name during this transition so existing charge-limit installations do not break. **WattNook** is the user-facing app name, and the repository is [`itscloud0/wattnook`](https://github.com/itscloud0/wattnook). It remains a fork of `charlie0129/batt` with the original Git history and GPL-2.0 license.
 
 ## Current build
 
