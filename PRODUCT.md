@@ -41,3 +41,11 @@ Existing AppKit implementation in `pkg/gui/`; previously generated state mockups
 2. Give battery controls and system diagnostics equal prominence.
 3. Make a heavy app identifiable before offering a normal Quit.
 4. Show unavailable or inconsistent telemetry honestly.
+
+## Verified handoff (2026-09-30)
+
+- `go test ./...` passes; the bundled Swift helper and app package compile.
+- The six synthetic power states render in `tools/power-flow-preview/`; charging and hybrid paths have a shared trunk, separate endpoints, and labels outside the ribbons.
+- The installed menu-bar app is WattNook. The legacy `batt-thermal` daemon and socket are intentionally unchanged.
+- A real display-sleep/wake test cleared the Dark Work state and its idle-sleep assertion. HID-based recognition of physical versus synthetic activity remains best-effort.
+- Next: review a screenshot of the live popover and iterate on visual fidelity. The offscreen preview does not prove the full installed popover looks right.
