@@ -38,6 +38,14 @@ static void Symbol(NSString *name, NSRect rect, CGFloat size, NSColor *color) {
             operation:NSCompositingOperationSourceOver fraction:1];
 }
 
+static void FlowNode(NSString *symbol, NSRect rect, NSColor *symbolColor, BOOL dark) {
+    NSColor *surface = dark ? [NSColor.whiteColor colorWithAlphaComponent:0.10] :
+        [NSColor.blackColor colorWithAlphaComponent:0.07];
+    [surface setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:8 yRadius:8] fill];
+    Symbol(symbol, NSInsetRect(rect, 7, 7), 19, symbolColor);
+}
+
 static NSColor *FlowColor(void) {
     return [NSColor colorWithCalibratedRed:0.39 green:0.62 blue:0.84 alpha:1];
 }
@@ -83,7 +91,7 @@ static void RoundCap(CGFloat x, CGFloat center, CGFloat diameter) {
 }
 
 static CGFloat FlowWidth(double watts) {
-    return MIN(10, MAX(4, 2 + sqrt(MAX(0, watts)) * 1.7));
+    return MIN(16, MAX(7, 4 + sqrt(MAX(0, watts)) * 1.8));
 }
 
 static NSString *Watts(double watts) {
@@ -119,7 +127,7 @@ static NSString *Watts(double watts) {
 }
 
 - (NSRect)railRect {
-    return NSMakeRect(20, 99, NSWidth(self.bounds) - 40, 6);
+    return NSMakeRect(20, 131, NSWidth(self.bounds) - 40, 6);
 }
 
 - (CGFloat)markerX {
@@ -195,7 +203,7 @@ static NSString *Watts(double watts) {
 - (void)resetCursorRects {
     [super resetCursorRects];
     if (self.limitEditable) {
-        [self addCursorRect:NSMakeRect([self markerX] - 16, 87, 32, 30)
+        [self addCursorRect:NSMakeRect([self markerX] - 16, 119, 32, 30)
                     cursor:NSCursor.openHandCursor];
     }
 }
@@ -235,13 +243,13 @@ static NSString *Watts(double watts) {
     NSString *chargeText = self.chargePercent < 0 ? @"—%" :
         [NSString stringWithFormat:@"%ld%%", (long)charge];
 
-    Text(chargeText, NSMakeRect(20, 139, 145, 45), 36, NSFontWeightSemibold,
+    Text(chargeText, NSMakeRect(20, 171, 145, 45), 36, NSFontWeightSemibold,
          NSColor.labelColor, NSTextAlignmentLeft);
-    Text(state, NSMakeRect(20, 116, 235, 20), 12, NSFontWeightRegular,
+    Text(state, NSMakeRect(20, 148, 235, 20), 12, NSFontWeightRegular,
          NSColor.secondaryLabelColor, NSTextAlignmentLeft);
     if (self.temperatureCelsius > 0) {
         Text([NSString stringWithFormat:@"%.1f°C", self.temperatureCelsius],
-             NSMakeRect(right - 56, 116, 56, 20), 12, NSFontWeightMedium,
+             NSMakeRect(right - 56, 148, 56, 20), 12, NSFontWeightMedium,
              NSColor.labelColor, NSTextAlignmentRight);
     }
 
@@ -260,14 +268,14 @@ static NSString *Watts(double watts) {
     }
     CGFloat markerX = [self markerX];
     [NSColor.labelColor setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(markerX - 1.5, 94, 3, 16)
+    [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(markerX - 1.5, 126, 3, 16)
                                      xRadius:2 yRadius:2] fill];
     // A real button, layered by the controller, labels this marker and opens exact limits.
     [[NSColor colorWithCalibratedWhite:dark ? 0.28 : 0.80 alpha:1] setFill];
-    NSRectFill(NSMakeRect(14, 72, width - 28, 0.7));
+    NSRectFill(NSMakeRect(14, 104, width - 28, 0.7));
 
     if (!self.hasTelemetry) {
-        Text(@"Power flow unavailable", NSMakeRect(20, 16, width - 40, 40),
+        Text(@"Power flow unavailable", NSMakeRect(20, 23, width - 40, 40),
              12, NSFontWeightMedium, NSColor.secondaryLabelColor, NSTextAlignmentCenter);
         return;
     }
@@ -276,88 +284,80 @@ static NSString *Watts(double watts) {
     // Its derived system power is then clamped to zero; don't draw that as fact.
     if (charging && (!self.pluggedIn || self.adapterWatts < self.batteryWatts + 0.5 ||
                      self.systemWatts < 0.5)) {
-        Text(@"Power readings updating", NSMakeRect(20, 32, width - 40, 20),
+        Text(@"Power readings updating", NSMakeRect(20, 52, width - 40, 20),
              12, NSFontWeightMedium, NSColor.labelColor, NSTextAlignmentCenter);
-        Text(@"Adapter and battery data disagree", NSMakeRect(20, 14, width - 40, 18),
+        Text(@"Adapter and battery data disagree", NSMakeRect(20, 30, width - 40, 18),
              10, NSFontWeightRegular, NSColor.secondaryLabelColor, NSTextAlignmentCenter);
         return;
     }
 
     NSColor *muted = NSColor.secondaryLabelColor;
-    CGFloat x0 = 72, x1 = width - 72;
+    CGFloat x0 = 67, x1 = width - 67;
     if (adapter && charging) {
-        CGFloat split = 120, center = 33;
+        CGFloat split = 128, center = 49;
         CGFloat toBattery = FlowWidth(self.batteryWatts);
         CGFloat toMac = FlowWidth(self.systemWatts);
         CGFloat total = toBattery + toMac;
         CGFloat boundary = center - total / 2 + toMac;
         Ribbon(split, center + total / 2, boundary,
-               x1 - toBattery / 2, 50 + toBattery / 2, 50 - toBattery / 2);
+               x1, 70 + toBattery / 2, 70 - toBattery / 2);
         Ribbon(split, boundary, center - total / 2,
-               x1 - toMac / 2, 16 + toMac / 2, 16 - toMac / 2);
-        RoundCap(x1 - toBattery, 50, toBattery);
-        RoundCap(x1 - toMac, 16, toMac);
+               x1, 28 + toMac / 2, 28 - toMac / 2);
         [FlowColor() setFill];
-        NSRectFill(NSMakeRect(x0 + total / 2, center - total / 2,
-                              split - x0 - total / 2 + 1, total));
-        RoundCap(x0, center, total);
-        Symbol(@"powerplug.fill", NSMakeRect(24, 22, 25, 25), 21, muted);
-        Symbol(@"battery.100percent", NSMakeRect(width - 51, 45, 25, 22), 20, muted);
-        Symbol(@"laptopcomputer", NSMakeRect(width - 51, 7, 25, 22), 20, muted);
-        Text([NSString stringWithFormat:@"Adapter %@", Watts(self.adapterWatts)],
-             NSMakeRect(8, 0, 130, 16), 9.5, NSFontWeightMedium,
-             NSColor.labelColor, NSTextAlignmentLeft);
-        Text([NSString stringWithFormat:@"To battery %@", Watts(self.batteryWatts)],
-             NSMakeRect(170, 55, 112, 16), 9.5, NSFontWeightSemibold,
+        NSRectFill(NSMakeRect(x0, center - total / 2, split - x0 + 1, total));
+        FlowNode(@"powerplug.fill", NSMakeRect(20, 32, 34, 34), muted, dark);
+        FlowNode(@"battery.100percent", NSMakeRect(width - 54, 53, 34, 34), muted, dark);
+        FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 11, 34, 34), muted, dark);
+        Text([NSString stringWithFormat:@"To battery · %@", Watts(self.batteryWatts)],
+             NSMakeRect(135, 85, 136, 16), 10.5, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentRight);
-        Text([NSString stringWithFormat:@"To Mac %@", Watts(self.systemWatts)],
-             NSMakeRect(182, 0, 100, 16), 9.5, NSFontWeightSemibold,
+        Text([NSString stringWithFormat:@"To Mac · %@", Watts(self.systemWatts)],
+             NSMakeRect(135, 4, 136, 16), 10.5, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentRight);
+        Text([NSString stringWithFormat:@"AC %@", Watts(self.adapterWatts)],
+             NSMakeRect(20, 7, 100, 16), 10, NSFontWeightMedium,
+             muted, NSTextAlignmentLeft);
     } else if (hybrid) {
-        CGFloat join = 208, center = 33;
+        CGFloat join = 215, center = 49;
         CGFloat fromAdapter = FlowWidth(self.adapterWatts);
         CGFloat fromBattery = FlowWidth(-self.batteryWatts);
         CGFloat total = fromAdapter + fromBattery;
         CGFloat boundary = center - total / 2 + fromBattery;
-        Ribbon(x0 + fromAdapter / 2, 51 + fromAdapter / 2, 51 - fromAdapter / 2,
+        Ribbon(x0, 70 + fromAdapter / 2, 70 - fromAdapter / 2,
                join, center + total / 2, boundary);
-        Ribbon(x0 + fromBattery / 2, 15 + fromBattery / 2, 15 - fromBattery / 2,
+        Ribbon(x0, 28 + fromBattery / 2, 28 - fromBattery / 2,
                join, boundary, center - total / 2);
-        RoundCap(x0, 51, fromAdapter);
-        RoundCap(x0, 15, fromBattery);
         [FlowColor() setFill];
-        NSRectFill(NSMakeRect(join - 1, center - total / 2,
-                              x1 - join - total / 2 + 1, total));
-        RoundCap(x1 - total, center, total);
-        Symbol(@"powerplug.fill", NSMakeRect(24, 45, 25, 22), 20, muted);
-        Symbol(@"battery.100percent", NSMakeRect(24, 5, 25, 22), 20, muted);
-        Symbol(@"laptopcomputer", NSMakeRect(width - 51, 22, 25, 25), 21, muted);
-        Text([NSString stringWithFormat:@"Adapter %@", Watts(self.adapterWatts)],
-             NSMakeRect(76, 55, 132, 16), 9.5, NSFontWeightSemibold,
+        NSRectFill(NSMakeRect(join, center - total / 2, x1 - join, total));
+        FlowNode(@"powerplug.fill", NSMakeRect(20, 53, 34, 34), muted, dark);
+        FlowNode(@"battery.100percent", NSMakeRect(20, 11, 34, 34), muted, dark);
+        FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 32, 34, 34), muted, dark);
+        Text([NSString stringWithFormat:@"AC · %@", Watts(self.adapterWatts)],
+             NSMakeRect(67, 85, 140, 16), 10.5, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentLeft);
-        Text([NSString stringWithFormat:@"Battery %@", Watts(-self.batteryWatts)],
-             NSMakeRect(76, 0, 132, 16), 9.5, NSFontWeightSemibold,
+        Text([NSString stringWithFormat:@"Battery · %@", Watts(-self.batteryWatts)],
+             NSMakeRect(67, 4, 140, 16), 10.5, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentLeft);
-        Text([NSString stringWithFormat:@"Mac %@", Watts(self.systemWatts)],
-             NSMakeRect(213, 0, 85, 16), 9.5, NSFontWeightMedium,
-             NSColor.labelColor, NSTextAlignmentRight);
+        Text([NSString stringWithFormat:@"Mac · %@", Watts(self.systemWatts)],
+             NSMakeRect(217, 7, 65, 16), 10, NSFontWeightMedium,
+             muted, NSTextAlignmentRight);
     } else {
         BOOL fromBattery = !adapter;
         double watts = fromBattery ? -self.batteryWatts : self.adapterWatts;
-        if (watts > 0.25) Flow(x0, 32, x1, 32, FlowWidth(watts), FlowWidth(watts));
-        Symbol(fromBattery ? @"battery.100percent" : @"powerplug.fill",
-               NSMakeRect(24, 22, 25, 25), 21, muted);
-        Symbol(@"laptopcomputer", NSMakeRect(width - 51, 22, 25, 25), 21, muted);
+        if (watts > 0.25) Flow(x0, 50, x1, 50, FlowWidth(watts), FlowWidth(watts));
+        FlowNode(fromBattery ? @"battery.100percent" : @"powerplug.fill",
+                 NSMakeRect(20, 33, 34, 34), muted, dark);
+        FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 33, 34, 34), muted, dark);
         Text([NSString stringWithFormat:@"%@ → Mac · %@",
               fromBattery ? @"Battery" : @"Adapter", Watts(watts)],
-             NSMakeRect(75, 47, width - 150, 18), 10.5, NSFontWeightSemibold,
+             NSMakeRect(75, 74, width - 150, 19), 11, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentCenter);
-        Text(fromBattery ? @"Battery" : @"Adapter", NSMakeRect(12, 7, 50, 16),
+        Text(fromBattery ? @"Battery" : @"Adapter", NSMakeRect(12, 9, 50, 16),
              10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
-        Text(@"Mac", NSMakeRect(width - 61, 7, 45, 16),
+        Text(@"Mac", NSMakeRect(width - 61, 9, 45, 16),
              10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
         if (adapter && !charging) {
-            Text(@"Battery held · 0 W", NSMakeRect(84, 7, width - 168, 17),
+            Text(@"Battery held · 0 W", NSMakeRect(84, 9, width - 168, 17),
                  10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
         }
     }

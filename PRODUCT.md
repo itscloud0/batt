@@ -1,4 +1,4 @@
-# Batt Thermal
+# WattNook
 
 <!-- impeccable:product-schema 1 -->
 
@@ -24,12 +24,12 @@ The app is a public GPLv2 fork of `charlie0129/batt`. It runs on Apple Silicon M
 - Temperature-based charging hold, with separate pause and resume thresholds.
 - Battery percentage, charging state, temperature, and approximate power-flow estimates. Watt values are derived from IOKit and can be temporarily inconsistent; the UI must not present contradictory readings as physical facts.
 - CPU load, physical memory used, and storage space used. Per-app CPU and memory readings are available; the app can request a normal Quit after confirmation. Force Quit is not implemented.
-- Dark Work turns the display off while keeping the Mac awake.
+- Bundled Dark Work helper turns the display off while keeping the Mac awake, then automatically ends the session on display wake; there is no separate menu-bar app.
 - Keep the single combined menu-bar item and recognizable macOS battery states. Keep advanced controls discoverable without making the primary popover a command dump.
 
 ## Brand Commitments
 
-The user likes AlDente Pro's battery-state and power-flow presentation and CleanMyMac's compact menu-bar diagnostics. The current Batt Thermal popover's visual language is rejected. The new interface must state what each value measures and where power flows.
+The user likes AlDente Pro's battery-state and power-flow presentation and CleanMyMac's compact menu-bar diagnostics. The old Batt Thermal popover's visual language is rejected. The interface must state what each value measures and where power flows. WattNook is the user-facing name; daemon and CLI keep their current names for compatibility.
 
 ## Evidence on Hand
 

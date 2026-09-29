@@ -24,12 +24,12 @@ int main(int argc, const char *argv[]) {
         ];
         for (NSDictionary *state in states) {
             NSWindow *window = [[NSWindow alloc]
-                initWithContentRect:NSMakeRect(0, 0, 340, 188)
+                initWithContentRect:NSMakeRect(0, 0, 340, 220)
                           styleMask:NSWindowStyleMaskBorderless
                             backing:NSBackingStoreBuffered defer:NO];
             window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
             BattPowerFlowView *view = [[BattPowerFlowView alloc]
-                initWithFrame:NSMakeRect(0, 0, 340, 188)];
+                initWithFrame:NSMakeRect(0, 0, 340, 220)];
             view.chargePercent = [state[@"charge"] integerValue];
             view.limitPercent = 80;
             view.pluggedIn = [state[@"plug"] boolValue];

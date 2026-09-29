@@ -107,7 +107,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         _cpuPercent = -1;
         _memoryPercent = -1;
         _diskPercent = -1;
-        _powerFlowView = [[BattPowerFlowView alloc] initWithFrame:NSMakeRect(0, 0, 340, 188)];
+        _powerFlowView = [[BattPowerFlowView alloc] initWithFrame:NSMakeRect(0, 0, 340, 220)];
 
         BattBuildMenu(self, version);
         BattApplyTooltips(self);
@@ -226,15 +226,15 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 
 - (void)buildPopover {
     NSView *content = [[[BattPopoverBackground alloc]
-        initWithFrame:NSMakeRect(0, 0, 340, 400)] autorelease];
+        initWithFrame:NSMakeRect(0, 0, 340, 432)] autorelease];
     content.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    self.powerFlowView.frame = NSMakeRect(0, 212, 340, 188);
+    self.powerFlowView.frame = NSMakeRect(0, 212, 340, 220);
     self.powerFlowView.limitTarget = self;
     self.powerFlowView.limitAction = @selector(commitLimitFromRail:);
     [content addSubview:self.powerFlowView];
 
     // The charge limit is both a draggable marker and a menu of exact values.
-    self.chargeButton = BattPopoverButton(NSMakeRect(218, 287, 102, 20),
+    self.chargeButton = BattPopoverButton(NSMakeRect(218, 319, 102, 20),
         @"Limit 80%  ›", @"", self, @selector(showChargeLimits:));
     self.chargeButton.image = nil;
     self.chargeButton.alignment = NSTextAlignmentRight;
@@ -330,7 +330,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     controller.view = content;
     self.popover = [[[NSPopover alloc] init] autorelease];
     self.popover.behavior = NSPopoverBehaviorTransient;
-    self.popover.contentSize = NSMakeSize(340, 400);
+    self.popover.contentSize = NSMakeSize(340, 432);
     self.popover.contentViewController = controller;
     [self refreshPopoverControls];
 }
@@ -687,11 +687,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 }
 
 - (NSString *)darkWorkToolPath {
-    NSString *bundled = [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"DarkWork"];
-    if (bundled != nil && [[NSFileManager defaultManager] isExecutableFileAtPath:bundled]) {
-        return bundled;
-    }
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Applications/Dark Work.app/Contents/MacOS/DarkWork"];
+    return [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"DarkWork"];
 }
 
 - (BOOL)isDarkWorkActive {
@@ -706,7 +702,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     if (![[NSFileManager defaultManager] isExecutableFileAtPath:tool]) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
         alert.messageText = @"Dark Work helper is missing";
-        alert.informativeText = @"Reinstall Batt Thermal to restore the screen-off helper.";
+        alert.informativeText = @"Reinstall WattNook to restore its bundled screen-off helper.";
         [alert runModal];
         return;
     }
@@ -715,9 +711,15 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     task.arguments = @[active ? @"--restore" : @"--activate"];
     @try {
         [task launch];
-        [self item:BattItemDarkWork].title = active
-            ? @"Dark Work: screen off, Mac awake"
-            : @"Dark Work: restore display";
+        [task waitUntilExit];
+        if (task.terminationStatus != 0) {
+            @throw [NSException exceptionWithName:@"DarkWorkError"
+                                           reason:@"Display control failed; check the bundled helper."
+                                         userInfo:nil];
+        }
+        [self item:BattItemDarkWork].title = [self isDarkWorkActive]
+            ? @"Dark Work: restore display"
+            : @"Dark Work: screen off, Mac awake";
     } @catch (NSException *exception) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
         alert.messageText = @"Could not toggle Dark Work";

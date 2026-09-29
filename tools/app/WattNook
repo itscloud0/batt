@@ -1,0 +1,6 @@
+#!/bin/zsh
+set -euo pipefail
+
+app_dir=${0:A:h}
+export BATT_RUN_GUI=1
+exec "$app_dir/batt-thermal" --daemon-socket=/var/run/batt-thermal.sock

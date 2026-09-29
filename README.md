@@ -1,12 +1,60 @@
+# WattNook
+
+Battery control and system diagnostics in one native macOS menu-bar app.
+
+WattNook answers two questions without making you open three utilities: **what is happening to my battery?** and **what is using my Mac?** It combines a draggable charge limit, temperature-based charging hold, power-flow estimates, CPU/RAM/storage metrics, and the apps using the most CPU and memory. A screen-off action keeps long-running work going; a key or trackpad wake returns to normal automatically.
+
+| Battery | System | Focus |
+| --- | --- | --- |
+| Charge limit, charging state, battery temperature, approximate power paths | CPU load, physical memory used, disk space used, top apps with confirmed normal Quit | Turn the display off while the Mac stays awake; wake the display normally with a key or trackpad |
+
 > [!IMPORTANT]
-> This is an experimental, community-maintained fork of [charlie0129/batt](https://github.com/charlie0129/batt), distributed under the original GPLv2 license. It adds a combined macOS menu-bar battery and system monitor, a draggable charge limit, temperature-based charging protection, and Dark Work display control. The upstream download and installation links below install **upstream batt**, not this fork. There are no prebuilt releases of this fork yet. To try it, build from this source tree; do not run two batt daemons at once.
+> **Experimental source build, no release binary yet.** The app still uses a privileged `batt-thermal` daemon and socket. Do not run it beside another `batt` daemon. Watt values are estimates from macOS telemetry, not measurements at the wall. When readings disagree, the UI withholds the misleading split instead of inventing a zero-watt system load.
+
+## Why this is a fork
+
+WattNook began as a public fork of [Charlie Chiang's batt](https://github.com/charlie0129/batt). Its charging control and daemon remain the foundation; the menu-bar UI, heat protection, system diagnostics, and screen-off helper are additions here. Git history and the original [GPL-2.0 license](LICENSE) are retained. This project is independent of AlDente and CleanMyMac; neither their branding nor proprietary UI code is included.
+
+The CLI and daemon retain the `batt-thermal` name during this transition so existing charge-limit installations do not break. **WattNook** is the user-facing app name. The GitHub repository remains `itscloud0/batt` because GitHub forks preserve their parent relationship.
+
+## Current build
+
+Requirements: Apple Silicon Mac, macOS 15+, Go, Swift compiler/Xcode command-line tools. Build a fresh app bundle from this checkout:
+
+```sh
+chmod +x tools/build-wattnook-app.sh
+tools/build-wattnook-app.sh /tmp/WattNook.app
+```
+
+The script builds the UI and bundles the Dark Work helper. It **does not install or modify the privileged daemon**, create a login item, or change a charge limit. Those remain manual, machine-specific setup steps. The app expects the compatible daemon at `/var/run/batt-thermal.sock`; without it the UI cannot control charging. Do not use the upstream release links below as WattNook installers.
+
+## What the display control does
+
+It requests macOS display sleep and holds an idle-sleep assertion. It no longer forces hardware brightness to zero. A normal key/trackpad wake restores the screen at its previous brightness; the bundled watcher then releases the assertion and clears the active state. If the display wakes without fresh HID activity, the helper requests display sleep again. Synthetic input may still look like real activity to macOS, so this is best-effort rather than a guarantee against every automation waking the screen. It is not a lid-closed or clamshell solution.
+
+## Status and limits
+
+- Charging controls depend on the Mac's SMC/firmware support. Check the original compatibility details below before installing a daemon.
+- The flow view shows approximate direction and magnitude, not a calibrated electrical measurement; transient readings may be unavailable.
+- “Quit” asks an app to exit normally after confirmation. WattNook does not force-quit processes.
+- There is no signed/notarized downloadable release or one-click installer yet.
+
+---
+
+## Original batt documentation (upstream reference)
+
+The following material documents the original `batt` CLI, compatibility, and upstream installation. Links and badges in this section refer to **upstream**, not a WattNook release.
+
+<details>
+<summary>Expand the original batt manual</summary>
+
 
 > [!TIP]
 > Feb 17, 2026 UPDATE: Finally, after more than 5 years, macOS 26.4 and later supports charge limiting natively (adjustable from 80% to 100%), so **`batt` is not needed if the built-in range meets your needs**. `batt` remains useful on older releases and when you want a limit below 80%. On macOS 27-era firmware, `batt` programs the firmware's charge-limit facility directly.
 
 Note: Use table of contents of quickly navigate to the section you want, e.g., `Installation`. 👆↗
 
-# batt
+### batt
 
 [![Go Checks](https://github.com/charlie0129/batt/actions/workflows/gochecks.yml/badge.svg)](https://github.com/charlie0129/batt/actions/workflows/gochecks.yml)[![Buind Test Binary](https://github.com/charlie0129/batt/actions/workflows/build-test-binary.yml/badge.svg)](https://github.com/charlie0129/batt/actions/workflows/build-test-binary.yml)![GitHub Downloads](https://img.shields.io/github/downloads/charlie0129/batt/total)
 
@@ -579,3 +627,5 @@ No. batt only works when macOS is running. After shutdown, there is no way to co
 ## Star History
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=charlie0129/batt&type=Date)](https://star-history.dera.page/#charlie0129/batt&Date)
+
+</details>

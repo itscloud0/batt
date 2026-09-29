@@ -1,5 +1,5 @@
 ---
-name: Batt Thermal
+name: WattNook
 description: Native Mac battery and system monitor
 colors:
   graphite-surface: "#1F242E"
@@ -27,7 +27,7 @@ spacing:
   unit: "4pt"
 ---
 
-# Design System: Batt Thermal
+# Design System: WattNook
 
 ## Overview
 
@@ -43,7 +43,7 @@ Use the system font for native legibility. The battery percentage is 36 pt; syst
 
 ## Layout
 
-The main popover is 340×400 pt. Its 4 pt rhythm groups the 188 pt battery and flow region, a 40 pt action strip, and the system region with three named metrics and two process rows. A compact layout never removes the meaning of a value to save space.
+The main popover is 340×432 pt. Its 4 pt rhythm groups the 220 pt battery and flow region, a 40 pt action strip, and the system region with three named metrics and two process rows. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols.
 
 ## Elevation & Depth
 
