@@ -27,15 +27,13 @@ chmod +x "$app/Contents/MacOS/WattNook"
     tools/dark-work/DarkWork.swift -o "$app/Contents/MacOS/DarkWork"
   icon_tmp=$(mktemp -d "${TMPDIR:-/tmp}/wattnook-icon.XXXXXX")
   trap 'rm -rf "$icon_tmp"' EXIT
-  swiftc -O -module-cache-path "${TMPDIR:-/tmp}/wattnook-swift-modules" \
-    tools/app/icon.swift -o "$icon_tmp/icon-generator"
-  "$icon_tmp/icon-generator" "$icon_tmp/base.png"
+  icon_source="$project_dir/tools/app/WattNook-Icon.png"
   mkdir "$icon_tmp/WattNook.iconset"
   for points in 16 32 128 256 512; do
-    sips -z "$points" "$points" "$icon_tmp/base.png" \
+    sips -z "$points" "$points" "$icon_source" \
       --out "$icon_tmp/WattNook.iconset/icon_${points}x${points}.png" >/dev/null
     pixels=$((points * 2))
-    sips -z "$pixels" "$pixels" "$icon_tmp/base.png" \
+    sips -z "$pixels" "$pixels" "$icon_source" \
       --out "$icon_tmp/WattNook.iconset/icon_${points}x${points}@2x.png" >/dev/null
   done
   iconutil -c icns "$icon_tmp/WattNook.iconset" -o "$app/Contents/Resources/WattNook.icns"

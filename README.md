@@ -26,7 +26,7 @@ chmod +x tools/build-wattnook-app.sh
 tools/build-wattnook-app.sh /tmp/WattNook.app
 ```
 
-The script builds the UI and bundles the Dark Work helper. It **does not install or modify the privileged daemon**, create a login item, or change a charge limit. Those remain manual, machine-specific setup steps. The app expects the compatible daemon at `/var/run/batt-thermal.sock`; without it the UI cannot control charging. Do not use the upstream release links below as WattNook installers.
+The script builds the UI, bundles the Dark Work helper, and packages the app icon from [`tools/app/WattNook-Icon.png`](tools/app/WattNook-Icon.png). It **does not install or modify the privileged daemon**, create a login item, or change a charge limit. Those remain manual, machine-specific setup steps. The app expects the compatible daemon at `/var/run/batt-thermal.sock`; without it the UI cannot control charging. Do not use the upstream release links below as WattNook installers.
 
 ## What the display control does
 
