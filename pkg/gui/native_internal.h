@@ -32,6 +32,7 @@ NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
     double _memoryPercent;
     double _diskPercent;
     NSTimeInterval _previousProcessSampleTime;
+    BOOL _statusCharging;
 }
 @property(nonatomic, assign) uintptr_t handle;
 @property(nonatomic, retain) NSStatusItem *statusItem;
