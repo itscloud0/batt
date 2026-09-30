@@ -36,8 +36,9 @@ private func restoreLegacyBrightness(_ values: [UInt32: Float]?) {
     }
 }
 
-private func restore() {
+private func restore(expectedPID: Int32? = nil) {
     guard let state = loadState() else { return }
+    if let expectedPID, state.caffeinatePID != expectedPID { return }
     restoreLegacyBrightness(state.brightness)
     if let pid = state.caffeinatePID, pid > 0 {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
@@ -78,50 +79,36 @@ private func activate() throws {
     }
 }
 
-private func secondsSinceUserInput() -> Double? {
-    let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOHIDSystem"))
-    guard service != 0 else { return nil }
-    defer { IOObjectRelease(service) }
-    guard let value = IORegistryEntryCreateCFProperty(service, "HIDIdleTime" as CFString,
-                                                       kCFAllocatorDefault, 0)?.takeRetainedValue() as? NSNumber else {
-        return nil
-    }
-    return value.doubleValue / 1_000_000_000
+private func shouldEndSession(observedSleep: Bool, asleep: Bool, elapsed: TimeInterval) -> Bool {
+    return (observedSleep && !asleep) || (!observedSleep && elapsed > 15)
 }
 
 private func watchDisplay() {
     var observedSleep = false
-    var previousIdle = secondsSinceUserInput()
-    var lastSleepRequest = Date.distantPast
+    guard let sessionPID = loadState()?.caffeinatePID else { return }
     let started = Date()
-    while loadState() != nil {
+    while loadState()?.caffeinatePID == sessionPID {
         let asleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
-        let idle = secondsSinceUserInput()
         if asleep { observedSleep = true }
-        if observedSleep && !asleep {
-            // Automation can wake the display without the user returning.
-            // Only a fresh HID idle reset ends Dark Work.
-            if let idle, let previousIdle, idle < 0.8 && idle + 0.1 < previousIdle {
-                restore()
-                return
-            }
-            if Date().timeIntervalSince(lastSleepRequest) > 1 {
-                _ = try? run("/usr/bin/pmset", ["displaysleepnow"])
-                lastSleepRequest = Date()
-            }
-        }
-        // If macOS refuses to sleep the display, do not leave an assertion or stale UI.
-        if !observedSleep && Date().timeIntervalSince(started) > 15 {
-            restore()
+        // Any display wake ends this session, even if the HID reset fell between polls.
+        // Never re-sleep a display the user has already restored.
+        if shouldEndSession(observedSleep: observedSleep, asleep: asleep,
+                            elapsed: Date().timeIntervalSince(started)) {
+            restore(expectedPID: sessionPID)
             return
         }
-        previousIdle = idle
         usleep(250_000)
     }
 }
 
 do {
-    if CommandLine.arguments.contains("--activate") {
+    if CommandLine.arguments.contains("--self-test") {
+        assert(!shouldEndSession(observedSleep: false, asleep: false, elapsed: 1))
+        assert(!shouldEndSession(observedSleep: true, asleep: true, elapsed: 20))
+        assert(shouldEndSession(observedSleep: true, asleep: false, elapsed: 1))
+        assert(shouldEndSession(observedSleep: false, asleep: false, elapsed: 16))
+        print("Dark Work wake policy checks passed")
+    } else if CommandLine.arguments.contains("--activate") {
         try activate()
     } else if CommandLine.arguments.contains("--restore") {
         restore()
