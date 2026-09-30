@@ -412,21 +412,21 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
         ((NSButton *)_summary[i]).title = values[i];
         NSInteger mode = [NSUserDefaults.standardUserDefaults integerForKey:
             @[@"WattNookCPUUnits",@"WattNookMemoryUnits",@"WattNookDiskUnits"][i]];
-        NSString *value = values[i], *caption = @[@"CPU load ↔",@"Memory used ↔",@"Disk MB/s ↔"][i];
+        NSString *value = values[i], *caption = @[@"CPU load",@"Memory used",@"Disk MB/s"][i];
         if (i == 0 && mode == 1) {
             value = cpu < 0 ? @"—" : [NSString stringWithFormat:@"%.2f",cpu*NSProcessInfo.processInfo.processorCount/100];
-            caption = @"CPU cores ↔";
+            caption = @"CPU cores";
         } else if (i == 1 && mode == 1) {
             value = memory < 0 ? @"—" : WattCompactBytes(memory*NSProcessInfo.processInfo.physicalMemory/100,YES);
         } else if (i == 2 && mode == 1) {
             value = c.diskSpacePercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",c.diskSpacePercent];
-            caption = @"SSD used ↔";
+            caption = @"SSD used";
         } else if (i == 2 && mode == 2) {
             value = c.diskTotalBytes == 0 ? @"—" : WattCompactBytes(c.diskTotalBytes-MIN(c.diskFreeBytes,c.diskTotalBytes),NO);
-            caption = @"SSD used ↔";
+            caption = @"SSD used";
         } else if (i == 2) {
             value = io < 0 ? @"—" : [WattCompactBytes(io*1000000,NO) stringByAppendingString:@"/s"];
-            caption = @"Disk activity ↔";
+            caption = @"Disk activity";
         }
         NSButton *detail = _details[i]; detail.title = value;
         CGFloat size = 22;

@@ -39,6 +39,8 @@ WattNook answers two questions: **what is happening to my battery?** and **what 
 
 <sub>Native AppKit renders of the implemented UI. Values are illustrative, not live measurements. The screenshots are static; power-flow highlights animate in the app.</sub>
 
+Power flows use a continuous rounded split/merge and a traveling highlight, active only on the visible Battery page and disabled by Reduce Motion. System metrics still switch units on click; their captions now omit the decorative arrows.
+
 - **Control charging.** Drag the limit marker from 20–95%, or choose an exact value. Thermal protection has separate pause and resume thresholds.
 - **Follow the power.** Adapter, battery and Mac have distinct paths for charging, held, battery-only and hybrid power. Labels stay outside the ribbons. A coherent local snapshot refreshes every two seconds; transitions show “updating” instead of fabricated zero-watt loads.
 - **Find the heavy app.** System shows six consumers sorted by CPU, resident memory or disk read + write rate. Attributed helpers are grouped with their apps; accessible background processes and WattNook itself are included. Normal Quit requires confirmation and is available only for eligible apps, not background processes or WattNook.

@@ -24,4 +24,6 @@ CPU presentation checks normalize raw per-core usage by the logical processor co
 
 Context-row checks assert column alignment (processes under CPU, swap under Memory, free storage under Disk), unchanged six-row consumer list and compact free-space values in GB/TB.
 
+Set `WATTNOOK_CHECKS_ONLY=1` to run assertions without generating preview images. Label checks cycle every saved unit mode and assert arrow-free captions with the Change units tooltip preserved.
+
 The harness also checks rail hit-testing beneath the static Limit label at 20% and 80%, the battery-percentage gap and the SSD used setting. For display-wake policy checks without sleeping the real display, compile `tools/dark-work/DarkWork.swift` with `swiftc -Onone` and run the resulting executable with `--self-test`. Assertions must be enabled for this policy check; do not use `-O`. Actual screen wake still requires a manual hardware test.

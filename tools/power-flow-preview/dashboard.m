@@ -1,6 +1,7 @@
 #import "../../pkg/gui/native_internal.h"
 #include <assert.h>
 #include <math.h>
+#include <stdlib.h>
 #import <QuartzCore/QuartzCore.h>
 
 // Isolated native render + behavior checks. No daemon callbacks or process quits.
@@ -20,6 +21,7 @@ static NSButton *FindButton(NSView *view, NSString *title) {
     return nil;
 }
 static void Capture(NSView *view, NSString *directory, NSString *name) {
+    if (getenv("WATTNOOK_CHECKS_ONLY")) return;
     [view displayIfNeeded];
     NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:view.bounds];
     [view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];
@@ -162,6 +164,14 @@ int main(int argc, const char *argv[]) {
         [FindButton(view,@"Memory") performClick:nil];
         Capture(view,directory,@"system-memory");
         NSArray *details = [view valueForKey:@"_details"];
+        NSArray *captions = [view valueForKey:@"_detailCaptions"];
+        for (NSUInteger i=0;i<details.count;i++) {
+            for (NSUInteger mode=0;mode<(i == 2 ? 3 : 2);mode++) {
+                [(NSButton *)details[i] performClick:nil];
+                assert(![((NSTextField *)captions[i]).stringValue containsString:@"↔"]);
+                assert([((NSButton *)details[i]).toolTip isEqual:@"Change units"]);
+            }
+        }
         [(NSButton *)details[1] performClick:nil];
         assert([NSUserDefaults.standardUserDefaults integerForKey:@"WattNookMemoryUnits"] == 1);
         assert([((NSButton *)details[1]).title containsString:@"GB"]);
@@ -279,6 +289,32 @@ int main(int argc, const char *argv[]) {
         for (CALayer *layer in c.powerFlowView.layer.sublayers)
             animated |= [layer animationForKey:@"flow"] != nil;
         assert(animated == !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
+        if (animated) {
+            for (BOOL merge = NO; ; merge = YES) {
+                c.powerFlowView.adapterWatts = merge ? 8.3 : 56.2;
+                c.powerFlowView.batteryWatts = merge ? -13.9 : 31.2;
+                c.powerFlowView.systemWatts = merge ? 22.2 : 25.0;
+                [c.powerFlowView setNeedsDisplay:YES];
+                [c.powerFlowView display];
+                [CATransaction flush];
+                for (CALayer *layer in c.powerFlowView.layer.sublayers) {
+                    CABasicAnimation *pulse = (CABasicAnimation *)[layer animationForKey:@"flow"];
+                    if (!pulse) continue;
+                    assert(fabs(pulse.duration - 2.2) < 0.001);
+                    __block NSInteger starts = 0, closes = 0;
+                    CGPathRef outline = ((CAShapeLayer *)layer.mask).path;
+                    CGPathApplyWithBlock(outline, ^(const CGPathElement *element) {
+                        starts += element->type == kCGPathElementMoveToPoint;
+                        closes += element->type == kCGPathElementCloseSubpath;
+                    });
+                    // AppKit may append an empty move after closing the outline.
+                    assert(starts >= 1 && starts <= 2 && closes == 1);
+                    assert(CGPathContainsPoint(outline, NULL, CGPointMake(merge ? 190 : 170, 49), NO));
+                    assert(!CGPathContainsPoint(outline, NULL, CGPointMake(180, 49), NO));
+                }
+                if (merge) break;
+            }
+        }
         c.powerFlowView.flowAnimationEnabled = NO;
         for (CALayer *layer in c.powerFlowView.layer.sublayers)
             assert([layer animationForKey:@"flow"] == nil);
