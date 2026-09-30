@@ -41,7 +41,7 @@ WattNook answers two questions: **what is happening to my battery?** and **what 
 
 - **Control charging.** Drag the limit marker from 20–95%, or choose an exact value. Thermal protection has separate pause and resume thresholds.
 - **Follow the power.** Adapter, battery and Mac have distinct paths for charging, held, battery-only and hybrid power. Labels stay outside the ribbons. A coherent local snapshot refreshes every two seconds; transitions show “updating” instead of fabricated zero-watt loads.
-- **Find the heavy app.** System sorts apps by CPU, resident memory or disk read + write rate, with app icons and normal Quit after confirmation. Helper processes are included where they can be attributed.
+- **Find the heavy app.** System shows six consumers sorted by CPU, resident memory or disk read + write rate. Attributed helpers are grouped with their apps; accessible background processes and WattNook itself are included. Normal Quit requires confirmation and is available only for eligible apps, not background processes or WattNook.
 - **Understand storage.** Battery shows used/free space and a capacity bar. System separates internal-drive read/write MB/s from storage occupancy.
 - **Keep work running, screen off.** The bundled display helper keeps the Mac awake; normal key/trackpad wake clears the session automatically.
 
@@ -50,8 +50,9 @@ WattNook answers two questions: **what is happening to my battery?** and **what 
 Open the gear in the popover:
 
 - Choose **Blue, Mint, Violet or Amber**. The accent, ribbon and graphite surface update together.
-- Show any combination of **CPU load, RAM used, SSD space used and battery percentage** in the menu bar.
+- Show any combination of **CPU load, RAM used, SSD space used and battery percentage** in the menu bar. **SSD used** means occupied disk space as a percentage. Read/write throughput remains available in System.
 - Keep or hide the battery icon. CPU-only, CPU + RAM, battery percentage-only and other combinations are supported.
+- Click each headline metric on **System** to independently cycle its saved units: CPU percentage/core equivalents, RAM percentage/used bytes, disk throughput/space-used percentage/used bytes. One aligned row adds context: **process count under CPU**, **swap used under Memory**, and **free space under Disk**. Consumer rows pair CPU percentages with core equivalents, RSS bytes with physical-RAM percentage, or separate disk read/write rates.
 - Choices persist across restarts. Turning everything off retains the battery icon so the app stays reachable.
 - Advanced battery controls remain one click away.
 
@@ -67,14 +68,17 @@ Open the gear in the popover:
 | Metric | Meaning |
 | --- | --- |
 | CPU load | Whole-system CPU busy percentage |
-| App CPU | One full CPU core = 100%; an app can exceed 100% |
+| App CPU | Percentage of total CPU capacity, on the same scale as CPU load; second line shows occupied / available core equivalents |
 | Memory used | Physical memory usage estimate, not memory pressure |
 | App memory | Resident memory (RSS), including attributed helpers |
+| Swap used | Current system swap occupancy from `vm.swapusage`; separate from RAM used and swap-file capacity |
 | Disk MB/s | Internal-drive read + write throughput, decimal MB/s |
 | App Disk | Per-process disk I/O rate across volumes, aggregated with attributed helpers; best-effort |
 | SSD used / free | Storage occupancy, **not** an SSD utilization percentage |
 
 Disk counters are sampled every two seconds. Unavailable or reset counters are shown as unavailable until a valid delta arrives; they do not become traffic spikes. Some apps' disk activity may not be attributable, and app totals need not match whole-drive totals.
+
+Process scans run every two seconds while the popover is open and every six seconds while closed. CPU deltas convert Mach ticks using the host timebase; PID reuse resets the baseline. Both headline and consumer percentages use total CPU capacity as their denominator. For example, 2.34 occupied cores out of 10 means 23.4% CPU, with `2.34 / 10 cores` shown below. These are time-based core equivalents, not performance/efficiency-core-weighted computing power. The list is not a complete accounting of kernel/system CPU: macOS may deny access to some processes.
 
 ## How it works
 
@@ -108,7 +112,9 @@ The script builds the UI, bundles the Dark Work helper, and packages the app ico
 
 ## What the display control does
 
-It requests macOS display sleep and holds an idle-sleep assertion. It no longer forces hardware brightness to zero. A normal key/trackpad wake restores the screen at its previous brightness; the bundled watcher then releases the assertion and clears the active state. If the display wakes without fresh HID activity, the helper requests display sleep again. Synthetic input may still look like real activity to macOS, so this is best-effort rather than a guarantee against every automation waking the screen. It is not a lid-closed or clamshell solution.
+It requests macOS display sleep and holds an idle-sleep assertion. It no longer forces hardware brightness to zero. Any observed display wake ends the session: the bundled watcher releases the assertion and clears the active state without requesting sleep again. This includes a key/trackpad wake and an automation-triggered wake. The normal macOS brightness is preserved. Watchers are scoped to their own session so an old watcher cannot clear a later activation. It is not a lid-closed or clamshell solution.
+
+The charge-limit label is non-interactive and sits below the rail on the left, so it cannot intercept dragging. Use the marker (or keyboard arrows with the rail focused) to adjust the limit; exact presets remain in Advanced controls.
 
 ## Status and limits
 

@@ -29,6 +29,8 @@ spacing:
 
 # Design System: WattNook
 
+Consumer CPU percentages use the same total-capacity scale as the CPU headline, with one decimal place. The secondary line shows occupied / available core equivalents (e.g. 2.34 / 10 cores). Raw per-core CPU samples stay unchanged for sampling and sorting; normalization happens only at presentation, including the diagnostic menu.
+
 ## Overview
 
 **Creative North Star: “The Mac power instrument.”** One compact menu-bar surface joins AlDente-like battery control with immediately useful system diagnostics. Battery and system each own a visibly separate region. State and meaning lead; ornament does not.
@@ -39,11 +41,11 @@ The popover uses an accent-tinted graphite native surface. Blue (default), Mint,
 
 ## Typography
 
-Use the system font for native legibility. The battery percentage is 36 pt; system measurements are 14 pt with tabular digits; state and action labels are 11–13 pt. Every watt value includes a source or destination label and an approximation sign when derived.
+Use the system font for native legibility. The battery percentage is 36 pt; system measurements are 14 pt with tabular digits; state and action labels are 11–13 pt. Watt values omit the approximation glyph for a cleaner display; telemetry is still derived and documented as approximate. Temperature is plain text with semantic heat color and no thermometer icon. Battery percentage sits 3 pt closer to its icon.
 
 ## Layout
 
-The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus unboxed temperature, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and an SSD used/free storage bar. Duplicate app rows stay on System only. System follows approved C: detailed metrics, separate disk read/write and storage values, CPU/Memory/Disk sort controls, five app rows and Activity Monitor. Settings replaces the page content without enlarging the popover. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols, with matching weight and size across sources and destinations.
+The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus unboxed temperature, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and an SSD used/free storage bar. Duplicate app rows stay on System only. System follows approved C: three detailed metrics, one readable Swap/process-count row, CPU/Memory/Disk sort controls, six consumer rows and Activity Monitor. Storage/I/O details are not repeated below the headline metrics. Settings replaces the page content without enlarging the popover. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols, with matching weight and size across sources and destinations.
 
 ## Elevation & Depth
 
@@ -51,11 +53,15 @@ The graphite surface has a restrained tonal gradient. Translucent buttons share 
 
 ## Shapes
 
+Energy ribbons enter the flat middle of endpoint tiles through ports no taller than 18 pt. Single-path transitions span 18% of the ribbon length instead of short shoulders; adjoining cubic tangents match to avoid sharp contour changes. Split/merge boundaries keep their original widths. No vertical outline is drawn at the tile seam. The menu-bar battery icon has a dedicated 8 pt gap after text, including when battery percentage is hidden; its percentage retains a separate 10 pt gap from the CPU/RAM/SSD stack.
+
 Use native status-icon states and aspect-fitted SF Symbols. The flow has one source-to-destination path or a clean split/merge with no overlapping translucent strokes. The charge rail has a separate draggable limit marker.
 
 ## Components
 
-The exact charge limit remains available from the rail label. Heat protection and display controls are direct actions. CPU, memory and disk measurements have distinct captions. Each System app has a normal Quit action with confirmation; the list never implies it can force-quit. Settings persists palette and individual CPU/RAM/SSD/battery-percentage/icon choices. An empty selection retains the battery icon so the app stays reachable.
+System headline metrics cycle their own saved units on activation, indicated by ↔ in the caption. The surface stays 360×480 pt. A single 12 pt context row aligns accessible-process count under CPU, swap used under Memory, and free storage under Disk. The three values use existing counters and no extra polling; compact byte units fit their slots without increasing height. Consumer usage has two right-aligned lines (CPU/core equivalents, RSS/RAM percentage, or read/write rates). Compact byte units promote B→KB→MB→GB→TB and beyond; number text fits its slot instead of truncating units. Background processes and WattNook are included without a Quit button.
+
+The charge-limit label is static, left-aligned below the rail and passes pointer events through to the slider. Exact presets remain in Advanced controls. Heat protection and display controls are direct actions. CPU, memory and disk measurements have distinct captions. Each System app has a normal Quit action with confirmation; the list never implies it can force-quit. Settings persists palette and individual CPU/RAM/SSD-space-used/battery-percentage/icon choices. The battery percentage is separated from the metric stack by 10 pt. An empty selection retains the battery icon so the app stays reachable.
 
 ## Do's and Don'ts
 
