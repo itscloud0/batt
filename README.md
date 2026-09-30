@@ -1,23 +1,93 @@
-# WattNook
+<p align="center">
+  <img src="tools/app/WattNook-Icon.png" width="88" alt="WattNook app icon">
+</p>
 
-Battery control and system diagnostics in one native macOS menu-bar app.
+<h1 align="center">WattNook</h1>
 
-WattNook answers two questions without making you open three utilities: **what is happening to my battery?** and **what is using my Mac?** It combines a draggable charge limit, temperature-based charging hold, power-flow estimates, CPU/RAM/storage metrics, and the apps using the most CPU and memory. A screen-off action keeps long-running work going; a key or trackpad wake returns to normal automatically.
+<p align="center"><strong>Know what powers your Mac. See what slows it down.</strong></p>
+<p align="center">Battery control · CPU, memory & disk diagnostics · One native menu-bar app</p>
 
-| Battery | System | Focus |
-| --- | --- | --- |
-| Charge limit, charging state, battery temperature, approximate power paths | CPU load, physical memory used, internal disk read/write MB/s and space used, top apps with confirmed normal Quit | Turn the display off while the Mac stays awake; wake the display normally with a key or trackpad |
+<p align="center">
+  <a href="LICENSE"><img alt="GPL-2.0 license" src="https://img.shields.io/badge/license-GPL--2.0-526B80"></a>
+  <img alt="macOS 15 and later" src="https://img.shields.io/badge/macOS-15%2B-526B80">
+  <img alt="Native AppKit" src="https://img.shields.io/badge/UI-native_AppKit-526B80">
+  <img alt="Experimental source build" src="https://img.shields.io/badge/status-experimental-D99A38">
+</p>
 
-## Two views, one menu-bar item
-
-**Battery** keeps charge controls, thermal status, an animated power ribbon, a small system summary and two resource-heavy apps together. **System** shows the CPU/memory-sorted app list, app icons, confirmed normal Quit actions and a shortcut to Activity Monitor.
-
-Disk activity is the built-in drive's read + write throughput in decimal MB/s, sampled every two seconds. The System view separates reads and writes and also shows storage occupancy and free space. It is **not** an SSD utilization percentage. Unavailable counters stay blank until a valid sample arrives; disk reconnects and counter resets do not become traffic spikes. Memory is physical memory used, not memory pressure; per-app memory is resident memory including helper processes. Per-app CPU follows the one-core = 100% convention and can exceed 100%.
-
-The ribbon has separate charging, battery-only, held, hybrid and unavailable states. Labels stay outside the flow. Its subtle highlight runs only while the Battery popover is visible, and respects Reduce Motion. The charge marker still supports dragging and arrow keys.
+<p align="center">
+  <a href="#your-mac-at-a-glance">Overview</a> ·
+  <a href="#make-it-yours">Customize</a> ·
+  <a href="#build-from-source">Build</a> ·
+  <a href="#why-this-is-a-fork">Origins & license</a>
+</p>
 
 > [!IMPORTANT]
-> **Experimental source build, no release binary yet.** The app still uses a privileged `batt-thermal` daemon and socket. Do not run it beside another `batt` daemon. Watt values are estimates from macOS telemetry, not measurements at the wall. When readings disagree, the UI withholds the misleading split instead of inventing a zero-watt system load.
+> **Experimental source build — no signed release or one-click installer yet.**
+> Charging requires a compatible privileged `batt-thermal` daemon. Do not run a second charging daemon alongside it. Power readings are approximate macOS telemetry, not wall-meter measurements.
+
+## Your Mac at a glance
+
+WattNook answers two questions: **what is happening to my battery?** and **what is using my Mac?** Keep a charging limit, watch temperature, find a resource-heavy app and request a normal Quit without opening several utilities.
+
+<table>
+  <tr><th>Battery</th><th>System</th></tr>
+  <tr>
+    <td><img src="docs/images/battery.png" width="360" alt="WattNook Battery view with charge limit, animated power ribbon, system summary and storage bar"></td>
+    <td><img src="docs/images/system.png" width="360" alt="WattNook System view with CPU, memory and disk metrics and sortable app list"></td>
+  </tr>
+</table>
+
+<sub>Native AppKit renders of the implemented UI. Values are illustrative, not live measurements. The screenshots are static; power-flow highlights animate in the app.</sub>
+
+- **Control charging.** Drag the limit marker from 20–95%, or choose an exact value. Thermal protection has separate pause and resume thresholds.
+- **Follow the power.** Adapter, battery and Mac have distinct paths for charging, held, battery-only and hybrid power. Labels stay outside the ribbons. A coherent local snapshot refreshes every two seconds; transitions show “updating” instead of fabricated zero-watt loads.
+- **Find the heavy app.** System sorts apps by CPU, resident memory or disk read + write rate, with app icons and normal Quit after confirmation. Helper processes are included where they can be attributed.
+- **Understand storage.** Battery shows used/free space and a capacity bar. System separates internal-drive read/write MB/s from storage occupancy.
+- **Keep work running, screen off.** The bundled display helper keeps the Mac awake; normal key/trackpad wake clears the session automatically.
+
+## Make it yours
+
+Open the gear in the popover:
+
+- Choose **Blue, Mint, Violet or Amber**. The accent, ribbon and graphite surface update together.
+- Show any combination of **CPU load, RAM used, SSD space used and battery percentage** in the menu bar.
+- Keep or hide the battery icon. CPU-only, CPU + RAM, battery percentage-only and other combinations are supported.
+- Choices persist across restarts. Turning everything off retains the battery icon so the app stays reachable.
+- Advanced battery controls remain one click away.
+
+<details>
+<summary>Preview settings</summary>
+
+<img src="docs/images/settings.png" width="360" alt="WattNook palette and menu-bar customization settings">
+
+</details>
+
+## What the numbers mean
+
+| Metric | Meaning |
+| --- | --- |
+| CPU load | Whole-system CPU busy percentage |
+| App CPU | One full CPU core = 100%; an app can exceed 100% |
+| Memory used | Physical memory usage estimate, not memory pressure |
+| App memory | Resident memory (RSS), including attributed helpers |
+| Disk MB/s | Internal-drive read + write throughput, decimal MB/s |
+| App Disk | Per-process disk I/O rate across volumes, aggregated with attributed helpers; best-effort |
+| SSD used / free | Storage occupancy, **not** an SSD utilization percentage |
+
+Disk counters are sampled every two seconds. Unavailable or reset counters are shown as unavailable until a valid delta arrives; they do not become traffic spikes. Some apps' disk activity may not be attributable, and app totals need not match whole-drive totals.
+
+## How it works
+
+```mermaid
+flowchart LR
+    UI["WattNook · native AppKit"] --> OS["macOS · power & process counters"]
+    UI <-->|"local Unix socket"| D["batt daemon"]
+    D --> SMC["SMC · charging control"]
+    UI --> H["Bundled display helper"]
+    H --> Display["Display sleep · keep Mac awake"]
+```
+
+The interface, local monitoring and display helper live in one app bundle. The charging daemon remains separate because it needs privileges. No Electron UI and no new third-party UI dependencies.
 
 ## Why this is a fork
 
@@ -25,7 +95,7 @@ WattNook began as a public fork of [Charlie Chiang's batt](https://github.com/ch
 
 The CLI and daemon retain the `batt-thermal` name during this transition so existing charge-limit installations do not break. **WattNook** is the user-facing app name, and the repository is [`itscloud0/wattnook`](https://github.com/itscloud0/wattnook). It remains a fork of `charlie0129/batt` with the original Git history and GPL-2.0 license.
 
-## Current build
+## Build from source
 
 Requirements: Apple Silicon Mac, macOS 15+, Go, Swift compiler/Xcode command-line tools. Build a fresh app bundle from this checkout:
 

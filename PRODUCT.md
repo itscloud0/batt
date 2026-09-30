@@ -23,7 +23,8 @@ The app is a public GPLv2 fork of `charlie0129/batt`. It runs on Apple Silicon M
 - Adjustable charge limit, including a draggable 20–95% rail and explicit 100%/disable action.
 - Temperature-based charging hold, with separate pause and resume thresholds.
 - Battery percentage, charging state, temperature, and approximate power-flow estimates. Watt values are derived from IOKit and can be temporarily inconsistent; the UI must not present contradictory readings as physical facts.
-- CPU load, physical memory used, internal disk read/write MB/s and storage space used. Per-app CPU and resident-memory readings are available; the app can request a normal Quit after confirmation. Force Quit is not implemented.
+- CPU load, physical memory used, internal disk read/write MB/s and storage space used/free with an occupancy bar. Per-app CPU, resident memory and best-effort disk read/write rates (all volumes, aggregated helpers) are available; the app can request a normal Quit after confirmation. Force Quit is not implemented.
+- Four saved accent palettes and selectable menu-bar CPU/RAM/SSD/battery percentage/icon combinations. An empty selection preserves the icon for access.
 - Bundled Dark Work helper turns the display off while keeping the Mac awake, then automatically ends the session on display wake; there is no separate menu-bar app.
 - Keep the single combined menu-bar item and recognizable macOS battery states. Keep advanced controls discoverable without making the primary popover a command dump.
 
@@ -33,7 +34,7 @@ The user likes AlDente Pro's battery-state and power-flow presentation and Clean
 
 ## Evidence on Hand
 
-Existing AppKit implementation in `pkg/gui/`; previously generated state mockups in `.lazyweb/design-improve/batt-states-2026-09-27/`; user screenshots in the conversation; live app on the user's Mac. No release-quality visual approval of the current popover.
+Existing AppKit implementation in `pkg/gui/`; previously generated state mockups in `.lazyweb/design-improve/batt-states-2026-09-27/`; user screenshots in the conversation; live app on the user's Mac. The user approved the implemented A+C direction, then requested the scoped refinements recorded below.
 
 ## Product Principles
 
@@ -43,6 +44,11 @@ Existing AppKit implementation in `pkg/gui/`; previously generated state mockups
 4. Show unavailable or inconsistent telemetry honestly.
 
 ## Verified handoff (2026-09-30)
+
+- Refinement: temperature is unboxed, source/destination watt labels are equal-weight, Battery shows SSD used/free GB and an occupancy bar instead of duplicate top-app rows. System adds Disk sorting. Settings persists four palettes and independent menu-bar fields.
+- Power/connection readings now come from one local AppleSmartBattery snapshot every two seconds and after the daemon status callback. Synthetic unplug checks discard stale adapter input and show battery → Mac; zero/unavailable transition readings use an updating state, not a claimed zero-watt load. A physical unplug cycle still needs user confirmation.
+- `go test ./...`, app packaging and the expanded isolated native harness passed. Native captures are in `/tmp/wattnook-refinement-renders-final/`; repository screenshots use illustrative values, not live process data. Per-app disk I/O attribution is best-effort and includes all volumes, unlike the internal-drive summary.
+- Installed the refinement at `/Users/iliasorokin/Applications/WattNook.app`; previous bundle retained at `/tmp/WattNook-before-customize-20260930.app`. Restarted only the menu-bar process; the privileged daemon was untouched. README now includes native Battery/System/Settings captures, telemetry definitions, customization and fork provenance.
 
 - `go test ./...` passes; the bundled Swift helper and app package compile.
 - The six synthetic power states render in `tools/power-flow-preview/`; charging and hybrid paths have a shared trunk, separate endpoints, and labels outside the ribbons.

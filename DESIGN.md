@@ -35,7 +35,7 @@ spacing:
 
 ## Colors
 
-The popover uses a graphite native surface. Blue marks power paths and battery level; green marks active charging, orange marks low battery. Secondary labels stay readable against graphite. The UI should not encode a charging state with color alone.
+The popover uses an accent-tinted graphite native surface. Blue (default), Mint, Violet and Amber palettes are user-selectable; active charging stays green and low battery stays orange. Selected controls darken the accent for readable white text. The UI should not encode a charging state with color alone.
 
 ## Typography
 
@@ -43,7 +43,7 @@ Use the system font for native legibility. The battery percentage is 36 pt; syst
 
 ## Layout
 
-The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus temperature badge, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and two app-icon rows. System follows approved C: detailed metrics, separate disk read/write and storage values, CPU/Memory sort controls, five app rows and Activity Monitor. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols.
+The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus unboxed temperature, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and an SSD used/free storage bar. Duplicate app rows stay on System only. System follows approved C: detailed metrics, separate disk read/write and storage values, CPU/Memory/Disk sort controls, five app rows and Activity Monitor. Settings replaces the page content without enlarging the popover. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols, with matching weight and size across sources and destinations.
 
 ## Elevation & Depth
 
@@ -55,7 +55,7 @@ Use native status-icon states and aspect-fitted SF Symbols. The flow has one sou
 
 ## Components
 
-The exact charge limit remains available from the rail label. Heat protection and display controls are direct actions. CPU, memory and disk measurements have distinct captions. Each featured app has a normal Quit action with confirmation; the list never implies it can force-quit.
+The exact charge limit remains available from the rail label. Heat protection and display controls are direct actions. CPU, memory and disk measurements have distinct captions. Each System app has a normal Quit action with confirmation; the list never implies it can force-quit. Settings persists palette and individual CPU/RAM/SSD/battery-percentage/icon choices. An empty selection retains the battery icon so the app stays reachable.
 
 ## Do's and Don'ts
 
