@@ -3,6 +3,10 @@
 
 #include "native.h"
 
+double BattProcessCPUPercent(uint64_t previous, uint64_t current, double elapsed,
+                             uint32_t numer, uint32_t denom);
+NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
+
 @interface BattPowerFlowView : NSView
 @property(nonatomic, assign) double adapterWatts;
 @property(nonatomic, assign) double systemWatts;
@@ -53,7 +57,7 @@
 @property(nonatomic, retain) NSMenu *cpuAppsMenu;
 @property(nonatomic, retain) NSMenu *memoryAppsMenu;
 @property(nonatomic, retain) NSArray<NSDictionary *> *appStats;
-@property(nonatomic, retain) NSDictionary<NSNumber *, NSNumber *> *previousProcessCPU;
+@property(nonatomic, retain) NSDictionary<NSNumber *, NSArray *> *previousProcessCPU;
 @property(nonatomic, retain) NSDictionary *previousProcessDisk;
 @property(nonatomic, retain) NSDictionary *previousDiskCounters;
 @property(nonatomic, assign) NSTimeInterval previousDiskSampleTime;
@@ -62,6 +66,7 @@
 @property(nonatomic, assign) double diskSpacePercent;
 @property(nonatomic, assign) uint64_t diskTotalBytes;
 @property(nonatomic, assign) uint64_t diskFreeBytes;
+@property(nonatomic, assign) double swapUsedBytes;
 
 - (instancetype)initWithHandle:(uintptr_t)handle version:(NSString *)version;
 - (NSMenuItem *)item:(BattMenuItem)item;
@@ -98,6 +103,7 @@ void BattBuildMenu(BattMenuController *controller, NSString *version);
 void BattApplyTooltips(BattMenuController *controller);
 void BattBuildPopover(BattMenuController *controller);
 void BattRefreshPopover(BattMenuController *controller, double cpu, double memory);
+NSString *WattCompactBytes(double bytes, BOOL binary);
 void BattUpdateStorage(BattMenuController *controller);
 void BattUpdateBattery(BattMenuController *controller);
 void BattApplyBatterySnapshot(BattMenuController *controller, NSDictionary *battery);

@@ -57,20 +57,34 @@ static NSBezierPath *Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
     CGFloat span = x1 - x0;
     NSBezierPath *path = [NSBezierPath bezierPath];
     CGFloat middle = (x0+x1)/2, center = (y0+y1)/2;
-    [path moveToPoint:NSMakePoint(x0, y0 + thickness/2)];
+    CGFloat port = MIN(18,thickness);
+    CGFloat entry = span * 0.18;
+    [path moveToPoint:NSMakePoint(x0, y0 + port/2)];
+    [path curveToPoint:NSMakePoint(x0+entry,y0+thickness/2)
+        controlPoint1:NSMakePoint(x0+entry*0.4,y0+port/2)
+        controlPoint2:NSMakePoint(x0+entry*0.6,y0+thickness/2)];
     [path curveToPoint:NSMakePoint(middle, center + 5)
-         controlPoint1:NSMakePoint(x0 + span * 0.18, y0 + thickness/2 + 4)
+         controlPoint1:NSMakePoint(x0 + entry*1.4, y0 + thickness/2)
          controlPoint2:NSMakePoint(middle - span * 0.18, center + 5)];
-    [path curveToPoint:NSMakePoint(x1, y1 + thickness/2)
+    [path curveToPoint:NSMakePoint(x1-entry, y1 + thickness/2)
          controlPoint1:NSMakePoint(middle + span * 0.18, center + 5)
-         controlPoint2:NSMakePoint(x1 - span * 0.18, y1 + thickness/2 + 4)];
-    [path lineToPoint:NSMakePoint(x1, y1 - thickness/2)];
+         controlPoint2:NSMakePoint(x1 - entry*1.4, y1 + thickness/2)];
+    [path curveToPoint:NSMakePoint(x1,y1+port/2)
+        controlPoint1:NSMakePoint(x1-entry*0.6,y1+thickness/2)
+        controlPoint2:NSMakePoint(x1-entry*0.4,y1+port/2)];
+    [path lineToPoint:NSMakePoint(x1, y1 - port/2)];
+    [path curveToPoint:NSMakePoint(x1-entry,y1-thickness/2)
+        controlPoint1:NSMakePoint(x1-entry*0.4,y1-port/2)
+        controlPoint2:NSMakePoint(x1-entry*0.6,y1-thickness/2)];
     [path curveToPoint:NSMakePoint(middle, center - 5)
-         controlPoint1:NSMakePoint(x1 - span * 0.18, y1 - thickness/2 - 4)
+         controlPoint1:NSMakePoint(x1 - entry*1.4, y1 - thickness/2)
          controlPoint2:NSMakePoint(middle + span * 0.18, center - 5)];
-    [path curveToPoint:NSMakePoint(x0, y0 - thickness/2)
+    [path curveToPoint:NSMakePoint(x0+entry, y0 - thickness/2)
          controlPoint1:NSMakePoint(middle - span * 0.18, center - 5)
-         controlPoint2:NSMakePoint(x0 + span * 0.18, y0 - thickness/2 - 4)];
+         controlPoint2:NSMakePoint(x0 + entry*1.4, y0 - thickness/2)];
+    [path curveToPoint:NSMakePoint(x0,y0-port/2)
+        controlPoint1:NSMakePoint(x0+entry*0.6,y0-thickness/2)
+        controlPoint2:NSMakePoint(x0+entry*0.4,y0-port/2)];
     [path closePath];
     NSColor *accent = FlowColor();
     NSGradient *gradient = [[[NSGradient alloc] initWithColors:@[
@@ -79,15 +93,23 @@ static NSBezierPath *Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
         [accent blendedColorWithFraction:0.25 ofColor:NSColor.whiteColor]]]
         autorelease];
     [gradient drawInBezierPath:path angle:0];
-    [[accent colorWithAlphaComponent:0.45] setStroke];
-    path.lineWidth = 0.6; [path stroke];
     return path;
 }
 
 // A filled ribbon keeps its own width through a split or merge. Unlike
 // overlapping round-capped strokes, adjacent ribbons share one clean edge.
 static NSBezierPath *Ribbon(CGFloat x0, CGFloat top0, CGFloat bottom0,
-                   CGFloat x1, CGFloat top1, CGFloat bottom1) {
+                   CGFloat x1, CGFloat top1, CGFloat bottom1, BOOL startPort, BOOL endPort) {
+    // Keep connections inside the tile's straight edge, away from rounded corners.
+    // Split/merge boundaries remain full-width; only external ports are narrowed.
+    if (startPort) {
+        CGFloat center = (top0+bottom0)/2, half = MIN(9,(top0-bottom0)/2);
+        top0 = center+half; bottom0 = center-half;
+    }
+    if (endPort) {
+        CGFloat center = (top1+bottom1)/2, half = MIN(9,(top1-bottom1)/2);
+        top1 = center+half; bottom1 = center-half;
+    }
     CGFloat span = x1 - x0;
     NSBezierPath *path = [NSBezierPath bezierPath];
     [path moveToPoint:NSMakePoint(x0, top0)];
@@ -118,7 +140,7 @@ static CGFloat FlowWidth(double watts) {
 }
 
 static NSString *Watts(double watts) {
-    return [NSString stringWithFormat:@"≈%.1f W", MAX(0, watts)];
+    return [NSString stringWithFormat:@"%.1f W", MAX(0, watts)];
 }
 
 @implementation BattPowerFlowView {
@@ -319,14 +341,13 @@ static NSString *Watts(double watts) {
     NSString *batterySymbol = [NSString stringWithFormat:@"battery.%ldpercent",
         (long)(charge >= 90 ? 100 : charge >= 65 ? 75 : charge >= 40 ? 50 : charge >= 15 ? 25 : 0)];
     Symbol(batterySymbol, NSMakeRect(20, 180, 40, 28), 28, NSColor.labelColor);
-    Text(chargeText, NSMakeRect(70, 171, 145, 45), 36, NSFontWeightSemibold,
+    Text(chargeText, NSMakeRect(67, 171, 145, 45), 36, NSFontWeightSemibold,
          NSColor.labelColor, NSTextAlignmentLeft);
     Text(state, NSMakeRect(20, 148, 235, 20), 12, NSFontWeightRegular,
          NSColor.secondaryLabelColor, NSTextAlignmentLeft);
     if (self.temperatureCelsius > 0) {
         NSColor *temperatureColor = self.heatPaused && self.pluggedIn ?
             NSColor.systemOrangeColor : NSColor.labelColor;
-        Symbol(@"thermometer.medium", NSMakeRect(right - 77, 187, 15, 18), 15, temperatureColor);
         Text([NSString stringWithFormat:@"%.1f°C", self.temperatureCelsius],
              NSMakeRect(right - 58, 185, 51, 20), 12, NSFontWeightMedium,
              temperatureColor, NSTextAlignmentRight);
@@ -349,7 +370,7 @@ static NSString *Watts(double watts) {
     [NSColor.labelColor setFill];
     [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(markerX - 1.5, 126, 3, 16)
                                      xRadius:2 yRadius:2] fill];
-    // A real button, layered by the controller, labels this marker and opens exact limits.
+    // The controller's non-interactive label never intercepts marker dragging.
     [[NSColor colorWithCalibratedWhite:dark ? 0.28 : 0.80 alpha:1] setFill];
     NSRectFill(NSMakeRect(14, 104, width - 28, 0.7));
 
@@ -382,11 +403,11 @@ static NSString *Watts(double watts) {
         CGFloat total = toBattery + toMac;
         CGFloat boundary = center - total / 2 + toMac;
         [mask appendBezierPath:Ribbon(split, center + total / 2, boundary,
-               x1, 70 + toBattery / 2, 70 - toBattery / 2)];
+               x1, 70 + toBattery / 2, 70 - toBattery / 2, NO,YES)];
         [mask appendBezierPath:Ribbon(split, boundary, center - total / 2,
-               x1, 28 + toMac / 2, 28 - toMac / 2)];
+               x1, 28 + toMac / 2, 28 - toMac / 2, NO,YES)];
         [mask appendBezierPath:Ribbon(x0, center+total/2, center-total/2,
-            split, center+total/2, center-total/2)];
+            split, center+total/2, center-total/2, YES,NO)];
         FlowNode(@"powerplug.fill", NSMakeRect(20, 32, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(width - 54, 53, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 11, 34, 34), muted, dark);
@@ -405,11 +426,11 @@ static NSString *Watts(double watts) {
         CGFloat total = fromAdapter + fromBattery;
         CGFloat boundary = center - total / 2 + fromBattery;
         [mask appendBezierPath:Ribbon(x0, 70 + fromAdapter / 2, 70 - fromAdapter / 2,
-               join, center + total / 2, boundary)];
+               join, center + total / 2, boundary, YES,NO)];
         [mask appendBezierPath:Ribbon(x0, 28 + fromBattery / 2, 28 - fromBattery / 2,
-               join, boundary, center - total / 2)];
+               join, boundary, center - total / 2, YES,NO)];
         [mask appendBezierPath:Ribbon(join, center+total/2, center-total/2,
-            x1, center+total/2, center-total/2)];
+            x1, center+total/2, center-total/2, NO,YES)];
         FlowNode(@"powerplug.fill", NSMakeRect(20, 53, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(20, 11, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 32, 34, 34), muted, dark);

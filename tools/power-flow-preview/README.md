@@ -15,3 +15,13 @@ The harness uses illustrative app/power values, not the daemon. It renders Batte
 `main.m` is the older isolated power-canvas renderer. Link it with `native_power_flow.m`, `native_preferences.m`, Cocoa and QuartzCore; do not compile both harness main files into one executable.
 
 AppKit execution needs a normal host session. In a restrictive automation sandbox, compile there but launch the test with narrowly scoped host permission.
+
+System checks additionally cover independently saved CPU/RAM/disk units, compact byte formatting through TB, unit promotion on rounding, unavailable swap, actual host swap sampling, and metric/app-row width assertions for 3 TB. CPU absolute values are core equivalents, not byte counts; app disk rates do not claim device utilization percentages.
+
+Stability checks regress the CPU button's former -1 tag (NSRangeException), perform 300 CPU/Memory/Disk switches, reject invalid sort indices, and assert six consumer rows with a readable Swap line. Pure CPU conversion checks cover Apple Silicon and 1:1 timebases plus reset/zero-duration samples; a 250 ms single-thread busy loop checks live process CPU near one full core. The monitor includes its own PID without a Quit action. This short smoke test is not a long-term leak or energy test.
+
+CPU presentation checks normalize raw per-core usage by the logical processor count (234 → 23.4% on ten cores), while preserving 2.34 occupied core equivalents. Tests cover single/multiple-core hosts, unavailable counts, zero usage and invalid values, and assert both displayed lines in a native consumer row. Sampling/sorting still use raw per-core usage internally.
+
+Context-row checks assert column alignment (processes under CPU, swap under Memory, free storage under Disk), unchanged six-row consumer list and compact free-space values in GB/TB.
+
+The harness also checks rail hit-testing beneath the static Limit label at 20% and 80%, the battery-percentage gap and the SSD used setting. For display-wake policy checks without sleeping the real display, compile `tools/dark-work/DarkWork.swift` with `swiftc -Onone` and run the resulting executable with `--self-test`. Assertions must be enabled for this policy check; do not use `-O`. Actual screen wake still requires a manual hardware test.

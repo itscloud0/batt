@@ -97,14 +97,32 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     return button;
 }
 
+NSString *WattCompactBytes(double bytes, BOOL binary) {
+    if (!isfinite(bytes) || bytes < 0) return @"—";
+    NSArray *units = @[@"B",@"KB",@"MB",@"GB",@"TB",@"PB",@"EB"];
+    double base = binary ? 1024 : 1000;
+    NSInteger unit = 0;
+    while (bytes >= base && unit < units.count-1) { bytes /= base; unit++; }
+    double rounded = round(bytes*10)/10;
+    if (rounded >= base && unit < units.count-1) { rounded /= base; unit++; }
+    return [NSString stringWithFormat:rounded == floor(rounded) ? @"%.0f %@" : @"%.1f %@",
+        rounded,units[unit]];
+}
+
 @interface WattAppRow : NSView
 @property(nonatomic, retain) NSDictionary *sample;
 @property(nonatomic, assign) BattMenuController *controller;
 - (void)update:(NSDictionary *)sample metric:(NSInteger)metric;
 @end
+
+@interface WattLimitLabel : NSTextField
+@end
+@implementation WattLimitLabel
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+@end
 @implementation WattAppRow {
     NSImageView *_icon;
-    NSTextField *_name, *_amount;
+    NSTextField *_name, *_amount, *_relative;
     WattButton *_quit;
 }
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -113,9 +131,12 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
         _icon.imageScaling = NSImageScaleProportionallyUpOrDown;
         [self addSubview:_icon];
         _name = Label(self, NSMakeRect(36, 8, 117, 19), @"Sampling…", 12, YES);
-        _amount = Label(self, NSMakeRect(156, 8, 98, 19), @"", 11, NO);
+        _amount = Label(self, NSMakeRect(156, 17, 98, 15), @"", 11, NO);
         _amount.alignment = NSTextAlignmentRight;
         _amount.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular];
+        _relative = Label(self, NSMakeRect(156, 2, 98, 14), @"", 9.5, NO);
+        _relative.alignment = NSTextAlignmentRight;
+        _relative.font = [NSFont monospacedDigitSystemFontOfSize:9.5 weight:NSFontWeightRegular];
         _quit = Button(self, NSMakeRect(266, 4, 46, 27), @"Quit", @"", self, @selector(quit:));
         _quit.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
         _quit.toolTip = @"Request a normal Quit after confirmation";
@@ -128,19 +149,36 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     self.sample = sample;
     self.hidden = sample == nil;
     if (!sample) return;
-    if (changed) _icon.image = [NSWorkspace.sharedWorkspace iconForFile:sample[@"path"]];
+    if (changed) _icon.image = [sample[@"path"] length] ?
+        [NSWorkspace.sharedWorkspace iconForFile:sample[@"path"]] :
+        [NSImage imageWithSystemSymbolName:@"gearshape.2" accessibilityDescription:@"Background process"];
+    _quit.hidden = sample[@"canQuit"] && ![sample[@"canQuit"] boolValue];
     _name.stringValue = sample[@"name"] ?: @"Application";
     _name.toolTip = _name.stringValue;
-    _amount.stringValue = metric == 2 ? ([sample[@"disk"] doubleValue] < 0 || !sample[@"disk"] ?
-        @"—" : [NSString stringWithFormat:@"%.1f MB/s",[sample[@"disk"] doubleValue]/1000000]) :
-        metric == 1 ? [NSByteCountFormatter
-        stringFromByteCount:[sample[@"memory"] longLongValue]
-        countStyle:NSByteCountFormatterCountStyleMemory] :
-        [NSString stringWithFormat:@"%.0f%% CPU", [sample[@"cpu"] doubleValue]];
-    _amount.toolTip = metric == 2 ? [NSString stringWithFormat:@"Read %.1f MB/s · Write %.1f MB/s; includes helpers, all volumes",
-        [sample[@"diskRead"] doubleValue]/1000000,[sample[@"diskWrite"] doubleValue]/1000000] :
+    BOOL diskValid = sample[@"disk"] && [sample[@"disk"] doubleValue] >= 0;
+    _amount.stringValue = metric == 2 ? (diskValid ?
+        [NSString stringWithFormat:@"Read %@/s",WattCompactBytes([sample[@"diskRead"] doubleValue],NO)] : @"—") :
+        metric == 1 ? WattCompactBytes([sample[@"memory"] doubleValue],YES) :
+        WattCPUUsageLabel([sample[@"cpu"] doubleValue],NSProcessInfo.processInfo.processorCount);
+    uint64_t physical = NSProcessInfo.processInfo.physicalMemory;
+    _relative.stringValue = metric == 2 ? (diskValid ?
+        [NSString stringWithFormat:@"Write %@/s",WattCompactBytes([sample[@"diskWrite"] doubleValue],NO)] : @"Sampling…") :
+        metric == 1 ? (physical ? [NSString stringWithFormat:@"%.1f%% RAM",
+            100*[sample[@"memory"] doubleValue]/physical] : @"—") :
+        [NSString stringWithFormat:@"%.2f / %lu cores",[sample[@"cpu"] doubleValue]/100,
+            (unsigned long)NSProcessInfo.processInfo.processorCount];
+    _amount.toolTip = metric == 2 ? @"Read/write throughput; includes helpers, all volumes. Not disk utilization percent." :
         metric == 1 ? @"Resident memory, including helper processes" :
-        @"CPU across cores; 100% is one full CPU core";
+        @"Percentage of total CPU capacity, on the same scale as CPU load; helpers included";
+    _relative.toolTip = _amount.toolTip;
+    for (NSTextField *field in @[_amount,_relative]) {
+        CGFloat size = field == _amount ? 11 : 9.5;
+        field.font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightRegular];
+        while ([field.stringValue sizeWithAttributes:@{NSFontAttributeName:field.font}].width > field.frame.size.width && size > 8) {
+            size -= 0.5;
+            field.font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightRegular];
+        }
+    }
     _quit.accessibilityLabel = [@"Quit " stringByAppendingString:_name.stringValue];
 }
 - (void)quit:(id)sender {
@@ -182,8 +220,8 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 @implementation WattDashboard {
     NSView *_batteryPage, *_systemPage, *_settingsPage;
     WattButton *_batteryTab, *_systemTab, *_cpuSort, *_memorySort, *_diskSort;
-    NSMutableArray *_summary, *_details, *_rows, *_paletteButtons, *_metricChecks;
-    NSTextField *_storage, *_read, *_write, *_footer, *_empty, *_usedSpace, *_freeSpace;
+    NSMutableArray *_summary, *_details, *_detailCaptions, *_rows, *_paletteButtons, *_metricChecks;
+    NSTextField *_processCount, *_swap, *_availableSpace, *_footer, *_empty, *_usedSpace, *_freeSpace, *_limitLabel;
     WattStorageBar *_storageBar;
     BOOL _system, _settings;
     NSInteger _sortMetric;
@@ -192,6 +230,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _summary = [[NSMutableArray alloc] init]; _details = [[NSMutableArray alloc] init];
+        _detailCaptions = [[NSMutableArray alloc] init];
         _rows = [[NSMutableArray alloc] init];
         _paletteButtons = [[NSMutableArray alloc] init]; _metricChecks = [[NSMutableArray alloc] init];
     }
@@ -199,6 +238,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 }
 - (void)dealloc {
     [_summary release]; [_details release]; [_rows release];
+    [_detailCaptions release];
     [_paletteButtons release]; [_metricChecks release];
     [super dealloc];
 }
@@ -229,11 +269,11 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     c.powerFlowView.frame = NSMakeRect(0, 188, 360, 220);
     c.powerFlowView.limitTarget = c; c.powerFlowView.limitAction = @selector(commitLimitFromRail:);
     [_batteryPage addSubview:c.powerFlowView];
-    c.chargeButton = Button(_batteryPage, NSMakeRect(220, 295, 120, 22),
-        @"Limit 80% ›", @"", c, @selector(showChargeLimits:));
-    ((WattButton *)c.chargeButton).plain = YES;
-    c.chargeButton.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-    c.chargeButton.toolTip = @"Drag the marker or choose an exact charge limit";
+    _limitLabel = [[[WattLimitLabel alloc] initWithFrame:NSMakeRect(20,295,120,20)] autorelease];
+    _limitLabel.editable = NO; _limitLabel.selectable = NO; _limitLabel.bezeled = NO;
+    _limitLabel.drawsBackground = NO; _limitLabel.textColor = [NSColor.whiteColor colorWithAlphaComponent:0.7];
+    _limitLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+    [_batteryPage addSubview:_limitLabel];
     c.heatButton = Button(_batteryPage, NSMakeRect(20, 151, 156, 31),
         @"Heat protection ›", @"thermometer.medium", c, @selector(showHeatOptions:));
     c.darkButton = Button(_batteryPage, NSMakeRect(184, 151, 156, 31),
@@ -252,12 +292,13 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
         Label(_batteryPage, NSMakeRect(23+i*110, 80, 105, 14),
             @[@"CPU load", @"Memory used", @"Disk MB/s"][i], 10, NO);
         WattButton *detail = Button(_systemPage, NSMakeRect(20+i*110, 349, 100, 34),
-            @"—", @"", self, @selector(metric:));
+            @"—", @"", self, @selector(units:));
         detail.plain = YES; detail.tag = i;
         detail.font = [NSFont monospacedDigitSystemFontOfSize:22 weight:NSFontWeightSemibold];
         [_details addObject:detail];
-        Label(_systemPage, NSMakeRect(24+i*110, 328, 100, 16),
-            @[@"CPU load", @"Memory used", @"Disk MB/s"][i], 11, NO);
+        [_detailCaptions addObject:Label(_systemPage, NSMakeRect(24+i*110, 328, 100, 16),
+            @[@"CPU load", @"Memory used", @"Disk MB/s"][i], 11, NO)];
+        detail.toolTip = @"Change units";
     }
     WattButton *storage = Button(_batteryPage,NSMakeRect(20,51,105,22),@"SSD storage ›",@"",self,@selector(metric:));
     storage.plain = YES; storage.tag = 2;
@@ -266,17 +307,20 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     _freeSpace.alignment = NSTextAlignmentRight;
     _storageBar = [[[WattStorageBar alloc] initWithFrame:NSMakeRect(24,14,312,6)] autorelease];
     _storageBar.fraction = -1; [_batteryPage addSubview:_storageBar];
-    _read = Label(_systemPage, NSMakeRect(24, 303, 150, 17), @"Read —", 11, NO);
-    _write = Label(_systemPage, NSMakeRect(184, 303, 155, 17), @"Write —", 11, NO);
-    _storage = Label(_systemPage, NSMakeRect(24, 280, 312, 17), @"Storage sampling…", 11, NO);
-    [self line:_systemPage y:268];
-    _cpuSort = Button(_systemPage, NSMakeRect(20,229,101,29), @"CPU", @"", self, @selector(sort:));
-    _memorySort = Button(_systemPage, NSMakeRect(129,229,101,29), @"Memory", @"", self, @selector(sort:));
-    _diskSort = Button(_systemPage,NSMakeRect(238,229,102,29),@"Disk",@"",self,@selector(sort:));
+    _swap = Label(_systemPage, NSMakeRect(134,300,100,20), @"Swap —", 12, NO);
+    _swap.toolTip = @"Current system swap used, not swap-file capacity or RAM usage";
+    _processCount = Label(_systemPage, NSMakeRect(24,300,100,20), @"", 12, NO);
+    _processCount.toolTip = @"Processes accessible to this monitor; app helpers are grouped in the list";
+    _availableSpace = Label(_systemPage, NSMakeRect(244,300,92,20), @"Free —", 12, NO);
+    _availableSpace.toolTip = @"Free storage space on the startup volume";
+    [self line:_systemPage y:289];
+    _cpuSort = Button(_systemPage, NSMakeRect(20,254,101,29), @"CPU", @"", self, @selector(sort:));
+    _memorySort = Button(_systemPage, NSMakeRect(129,254,101,29), @"Memory", @"", self, @selector(sort:));
+    _diskSort = Button(_systemPage,NSMakeRect(238,254,102,29),@"Disk",@"",self,@selector(sort:));
     _diskSort.tag = 2;
-    _cpuSort.selected = YES; _memorySort.tag = 1;
-    for (NSInteger i = 0; i < 5; i++) {
-        WattAppRow *row = [[[WattAppRow alloc] initWithFrame:NSMakeRect(24, 190-i*34, 312, 34)] autorelease];
+    _cpuSort.tag = 0; _cpuSort.selected = YES; _memorySort.tag = 1;
+    for (NSInteger i = 0; i < 6; i++) {
+        WattAppRow *row = [[[WattAppRow alloc] initWithFrame:NSMakeRect(24, 220-i*34, 312, 34)] autorelease];
         [_systemPage addSubview:row]; row.controller = c; [_rows addObject:row];
     }
     _empty = Label(_systemPage, NSMakeRect(24, 181, 312, 32), @"Collecting app samples…", 12, NO);
@@ -294,7 +338,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     }
     [self line:_settingsPage y:281];
     Label(_settingsPage,NSMakeRect(24,245,312,24),@"Menu bar",16,YES);
-    NSArray *titles = @[@"CPU load",@"Memory used",@"SSD space used",@"Battery percentage",@"Battery icon"];
+    NSArray *titles = @[@"CPU load",@"Memory used",@"SSD used",@"Battery percentage",@"Battery icon"];
     for (NSInteger i=0;i<titles.count;i++) {
         NSButton *check = [NSButton checkboxWithTitle:titles[i] target:self action:@selector(menuMetric:)];
         check.frame = NSMakeRect(24,212-i*30,312,24); check.tag = i;
@@ -334,16 +378,29 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     [self refreshCPU:_cpu memory:_memory];
 }
 - (void)metric:(NSButton *)sender {
+    if (sender.tag < 0 || sender.tag > 2) return;
     _sortMetric = sender.tag;
     [self system:sender];
 }
-- (void)sort:(NSButton *)sender { _sortMetric = sender.tag; [self refreshCPU:_cpu memory:_memory]; }
+- (void)units:(NSButton *)sender {
+    if (sender.tag < 0 || sender.tag > 2) return;
+    NSString *key = @[@"WattNookCPUUnits",@"WattNookMemoryUnits",@"WattNookDiskUnits"][sender.tag];
+    NSInteger count = sender.tag == 2 ? 3 : 2;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setInteger:([defaults integerForKey:key]+1)%count forKey:key];
+    [self refreshCPU:_cpu memory:_memory];
+}
+- (void)sort:(NSButton *)sender {
+    if (sender.tag < 0 || sender.tag > 2) return;
+    _sortMetric = sender.tag; [self refreshCPU:_cpu memory:_memory];
+}
 - (void)activity:(id)sender {
     (void)sender;
     [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:
         @"/System/Applications/Utilities/Activity Monitor.app"]];
 }
 - (void)refreshCPU:(double)cpu memory:(double)memory {
+    if (_sortMetric < 0 || _sortMetric > 2) _sortMetric = 0;
     _cpu = cpu; _memory = memory;
     BattMenuController *c = self.controller;
     double io = c.diskReadRate < 0 || c.diskWriteRate < 0 ? -1 :
@@ -352,30 +409,54 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
         memory < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",memory],
         io < 0 ? @"—" : [NSString stringWithFormat:io >= 100 ? @"%.0f" : @"%.1f",io]];
     for (NSInteger i = 0; i < 3; i++) {
-        ((NSButton *)_summary[i]).title = values[i]; ((NSButton *)_details[i]).title = values[i];
+        ((NSButton *)_summary[i]).title = values[i];
+        NSInteger mode = [NSUserDefaults.standardUserDefaults integerForKey:
+            @[@"WattNookCPUUnits",@"WattNookMemoryUnits",@"WattNookDiskUnits"][i]];
+        NSString *value = values[i], *caption = @[@"CPU load ↔",@"Memory used ↔",@"Disk MB/s ↔"][i];
+        if (i == 0 && mode == 1) {
+            value = cpu < 0 ? @"—" : [NSString stringWithFormat:@"%.2f",cpu*NSProcessInfo.processInfo.processorCount/100];
+            caption = @"CPU cores ↔";
+        } else if (i == 1 && mode == 1) {
+            value = memory < 0 ? @"—" : WattCompactBytes(memory*NSProcessInfo.processInfo.physicalMemory/100,YES);
+        } else if (i == 2 && mode == 1) {
+            value = c.diskSpacePercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",c.diskSpacePercent];
+            caption = @"SSD used ↔";
+        } else if (i == 2 && mode == 2) {
+            value = c.diskTotalBytes == 0 ? @"—" : WattCompactBytes(c.diskTotalBytes-MIN(c.diskFreeBytes,c.diskTotalBytes),NO);
+            caption = @"SSD used ↔";
+        } else if (i == 2) {
+            value = io < 0 ? @"—" : [WattCompactBytes(io*1000000,NO) stringByAppendingString:@"/s"];
+            caption = @"Disk activity ↔";
+        }
+        NSButton *detail = _details[i]; detail.title = value;
+        CGFloat size = 22;
+        while ([value sizeWithAttributes:@{NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold]}].width > detail.frame.size.width-6 && size > 12) size--;
+        detail.font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold];
+        ((NSTextField *)_detailCaptions[i]).stringValue = caption;
+        detail.accessibilityLabel = [NSString stringWithFormat:@"%@ %@; activate to change units",caption,value];
         ((NSButton *)_summary[i]).needsDisplay = YES; ((NSButton *)_details[i]).needsDisplay = YES;
         NSString *description = [NSString stringWithFormat:@"%@ %@",
             @[@"CPU load", @"Memory used", @"Disk throughput MB/s"][i], values[i]];
         ((NSButton *)_summary[i]).accessibilityLabel = description;
-        ((NSButton *)_details[i]).accessibilityLabel = description;
     }
-    _read.stringValue = c.diskReadRate < 0 ? @"Read: sampling…" :
-        [NSString stringWithFormat:@"Read %.1f MB/s",c.diskReadRate/1000000];
-    _write.stringValue = c.diskWriteRate < 0 ? @"Write: sampling…" :
-        [NSString stringWithFormat:@"Write %.1f MB/s",c.diskWriteRate/1000000];
-    _storage.stringValue = c.diskTotalBytes == 0 ? @"Storage unavailable" :
-        [NSString stringWithFormat:@"%.0f%% used · %@ free of %@",c.diskSpacePercent,
-            [NSByteCountFormatter stringFromByteCount:c.diskFreeBytes countStyle:NSByteCountFormatterCountStyleFile],
-            [NSByteCountFormatter stringFromByteCount:c.diskTotalBytes countStyle:NSByteCountFormatterCountStyleFile]];
-    c.chargeButton.title = [NSString stringWithFormat:@"Limit %ld%% ›",(long)c.powerFlowView.displayedLimitPercent];
+    _swap.stringValue = [@"Swap " stringByAppendingString:WattCompactBytes(c.swapUsedBytes,YES)];
+    _processCount.stringValue = [NSString stringWithFormat:@"%lu processes",(unsigned long)c.previousProcessCPU.count];
+    _availableSpace.stringValue = [@"Free " stringByAppendingString:
+        WattCompactBytes(c.diskTotalBytes ? (double)MIN(c.diskFreeBytes,c.diskTotalBytes) : -1,NO)];
+    for (NSTextField *field in @[_processCount,_swap,_availableSpace]) {
+        CGFloat size = 12;
+        field.font = [NSFont systemFontOfSize:size];
+        while ([field.stringValue sizeWithAttributes:@{NSFontAttributeName:field.font}].width > field.frame.size.width && size > 10) {
+            size -= 0.5; field.font = [NSFont systemFontOfSize:size];
+        }
+    }
+    _limitLabel.stringValue = [NSString stringWithFormat:@"Limit %ld%%",(long)c.powerFlowView.displayedLimitPercent];
     c.heatButton.title = @"Heat protection ›";
     c.heatButton.toolTip = [c item:BattItemHeatProtection].title;
     c.darkButton.title = [c isDarkWorkActive] ? @"Restore display" : @"Screen off";
     c.darkButton.accessibilityLabel = c.darkButton.title;
-    c.chargeButton.accessibilityLabel = c.chargeButton.title;
-    c.chargeButton.enabled = ![c item:BattItemQuickLimits].hidden;
     c.heatButton.enabled = ![c item:BattItemHeatProtection].hidden;
-    c.powerFlowView.limitEditable = c.chargeButton.enabled && [c item:BattItemLimit80].enabled;
+    c.powerFlowView.limitEditable = ![c item:BattItemQuickLimits].hidden && [c item:BattItemLimit80].enabled;
     uint64_t freeBytes = MIN(c.diskFreeBytes,c.diskTotalBytes);
     _usedSpace.stringValue = c.diskTotalBytes == 0 ? @"Used —" :
         [@"Used " stringByAppendingString:[NSByteCountFormatter stringFromByteCount:
@@ -403,6 +484,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     for (NSInteger i=0;i<4;i++) ((NSButton *)_metricChecks[i]).state =
         [metrics containsObject:@[@"CPU",@"RAM",@"SSD",@"Battery"][i]] ? NSControlStateValueOn : NSControlStateValueOff;
     ((NSButton *)_metricChecks[4]).state = WattMenuBatteryIcon() ? NSControlStateValueOn : NSControlStateValueOff;
+    ((NSButton *)_metricChecks[2]).toolTip = @"SSD storage space used as a percentage; read/write activity is available in System";
 }
 @end
 

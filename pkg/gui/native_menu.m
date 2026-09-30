@@ -1,6 +1,7 @@
 #import "native_internal.h"
 #import <mach/mach.h>
 #import <sys/mount.h>
+#import <sys/sysctl.h>
 
 static const NSTimeInterval BattMenuUpdateInterval = 10.0;
 
@@ -61,6 +62,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         _statusItem.autosaveName = @"BattThermalCombinedStatus";
         _cpuPercent = -1;
         _memoryPercent = -1;
+        _swapUsedBytes = -1;
         _diskPercent = -1;
         _diskReadRate = -1;
         _diskWriteRate = -1;
@@ -84,6 +86,8 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
                                                       selector:@selector(updateSystemStats:)
                                                       userInfo:nil
                                                        repeats:YES] retain];
+        _statsTimer.tolerance = 0.25;
+        _timer.tolerance = 1.0;
         [self updateSystemStats:nil];
     }
     return self;
@@ -205,6 +209,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         return;
     }
     battMenuWillOpen(_handle);
+    [self updateAppStats];
     [self refreshPopoverControls];
     [NSApp activateIgnoringOtherApps:YES];
     [self.popover showRelativeToRect:self.statusItem.button.bounds
@@ -330,12 +335,18 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
             _memoryPercent = 100.0 * (1.0 - MIN(available, total) / (double)total);
     }
 
+    struct xsw_usage swap = {0};
+    size_t swapSize = sizeof(swap);
+    self.swapUsedBytes = sysctlbyname("vm.swapusage", &swap, &swapSize, NULL, 0) == 0 &&
+        swapSize == sizeof(swap) ? (double)swap.xsu_used : -1;
     BattUpdateStorage(self);
     BattUpdateBattery(self);
     _diskPercent = self.diskSpacePercent;
     [self refreshStatusImage];
-    [self updateAppStats];
-    [self refreshPopoverControls];
+    // Keep system/menu metrics responsive; scan processes less often while closed.
+    if (self.popover.isShown || NSProcessInfo.processInfo.systemUptime-_previousProcessSampleTime >= 6)
+        [self updateAppStats];
+    if (self.popover.isShown) [self refreshPopoverControls];
 }
 
 - (void)refreshStatusImage {
@@ -344,9 +355,13 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     for (NSString *metric in @[@"CPU",@"RAM",@"SSD"]) {
         if (![metrics containsObject:metric]) continue;
         [labels addObject:metric];
-        double value = [metric isEqual:@"CPU"] ? _cpuPercent :
-            [metric isEqual:@"RAM"] ? _memoryPercent : _diskPercent;
-        [values addObject:value < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",value]];
+        if ([metric isEqual:@"SSD"]) {
+            [values addObject:self.diskSpacePercent < 0 ? @"—" :
+                [NSString stringWithFormat:@"%.0f%%",self.diskSpacePercent]];
+        } else {
+            double value = [metric isEqual:@"CPU"] ? _cpuPercent : _memoryPercent;
+            [values addObject:value < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",value]];
+        }
     }
     BOOL percent = [metrics containsObject:@"Battery"];
     BOOL icon = WattMenuBatteryIcon() || (labels.count == 0 && !percent);
@@ -363,9 +378,11 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     NSDictionary *chargeStyle = @{NSFontAttributeName:
         [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName:NSColor.whiteColor};
-    CGFloat percentWidth = percent ? ceil([charge sizeWithAttributes:chargeStyle].width)+4 : 0;
+    CGFloat percentGap = percent && labels.count ? 10 : 0;
+    CGFloat percentWidth = percent ? percentGap+ceil([charge sizeWithAttributes:chargeStyle].width)+4 : 0;
+    CGFloat iconGap = icon && (labels.count || percent) ? 8 : 0;
     NSImage *combined = [[[NSImage alloc] initWithSize:
-        NSMakeSize(MAX(24,stackWidth+percentWidth+(icon ? 26 : 0)),24)] autorelease];
+        NSMakeSize(MAX(24,stackWidth+percentWidth+iconGap+(icon ? 26 : 0)),24)] autorelease];
     [combined lockFocus];
     CGFloat height = [@"100%" sizeWithAttributes:attributes].height;
     for (NSInteger i=0;i<labels.count;i++) {
@@ -373,13 +390,19 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         [labels[i] drawAtPoint:NSMakePoint(1,y) withAttributes:attributes];
         [values[i] drawAtPoint:NSMakePoint(labelWidth+6,y) withAttributes:attributes];
     }
-    if (percent) [charge drawAtPoint:NSMakePoint(stackWidth,
+    if (percent) [charge drawAtPoint:NSMakePoint(stackWidth+percentGap,
         (24-[charge sizeWithAttributes:chargeStyle].height)/2) withAttributes:chargeStyle];
-    if (icon) [self.batteryIcon drawInRect:NSMakeRect(stackWidth+percentWidth,5,25,14)
+    if (icon) [self.batteryIcon drawInRect:NSMakeRect(stackWidth+percentWidth+iconGap,5,25,14)
         fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
     [combined unlockFocus];
     self.statusItem.button.image = combined;
     self.statusItem.button.title = @"";
+    NSMutableArray *descriptions = [NSMutableArray arrayWithObject:@"WattNook"];
+    for (NSInteger i=0;i<labels.count;i++)
+        [descriptions addObject:[NSString stringWithFormat:@"%@ %@",
+            [labels[i] isEqual:@"SSD"] ? @"SSD space used" : labels[i],values[i]]];
+    if (percent) [descriptions addObject:[@"Battery " stringByAppendingString:charge]];
+    self.statusItem.button.accessibilityLabel = [descriptions componentsJoinedByString:@", "];
 }
 
 - (void)setStatusIconInstalled:(BOOL)installed
