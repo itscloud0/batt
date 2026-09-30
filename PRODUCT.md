@@ -23,7 +23,7 @@ The app is a public GPLv2 fork of `charlie0129/batt`. It runs on Apple Silicon M
 - Adjustable charge limit, including a draggable 20–95% rail and explicit 100%/disable action.
 - Temperature-based charging hold, with separate pause and resume thresholds.
 - Battery percentage, charging state, temperature, and approximate power-flow estimates. Watt values are derived from IOKit and can be temporarily inconsistent; the UI must not present contradictory readings as physical facts.
-- CPU load, physical memory used, and storage space used. Per-app CPU and memory readings are available; the app can request a normal Quit after confirmation. Force Quit is not implemented.
+- CPU load, physical memory used, internal disk read/write MB/s and storage space used. Per-app CPU and resident-memory readings are available; the app can request a normal Quit after confirmation. Force Quit is not implemented.
 - Bundled Dark Work helper turns the display off while keeping the Mac awake, then automatically ends the session on display wake; there is no separate menu-bar app.
 - Keep the single combined menu-bar item and recognizable macOS battery states. Keep advanced controls discoverable without making the primary popover a command dump.
 
@@ -48,4 +48,7 @@ Existing AppKit implementation in `pkg/gui/`; previously generated state mockups
 - The six synthetic power states render in `tools/power-flow-preview/`; charging and hybrid paths have a shared trunk, separate endpoints, and labels outside the ribbons.
 - The installed menu-bar app is WattNook. The legacy `batt-thermal` daemon and socket are intentionally unchanged.
 - A real display-sleep/wake test cleared the Dark Work state and its idle-sleep assertion. HID-based recognition of physical versus synthetic activity remains best-effort.
-- Next: review a screenshot of the live popover and iterate on visual fidelity. The offscreen preview does not prove the full installed popover looks right.
+- User approved A's energy ribbon, parallel actions and app icons, combined with C's separate System detail screen; B was rejected. Implemented this direction in native AppKit, at 360×480 pt. Do not regenerate or switch layouts without a new request.
+- Status item ordering uses `BattThermalCombinedStatus` as its `autosaveName`. Public AppKit offers no always-rightmost position guarantee; user Command-drag placement is preserved by macOS. Startup order must not be described as placement control.
+- `go test ./...` passes. The isolated dashboard harness verifies counter reset/zero-time handling, tabs, keyboard limit commit, animation start/stop, empty telemetry and seven full-popover power states (including inconsistent readings). Internal-drive counters were verified on this Mac. Final native captures are in `/tmp/wattnook-dashboard-renders-final/`; mock values are illustrative.
+- Installed A+C bundle at `/Users/iliasorokin/Applications/WattNook.app`; old bundle retained at `/tmp/WattNook-before-ac-20260930.app`. Daemon, socket and configured charge limit unchanged. Computer-use host timed out twice, so live pointer interaction was not verified; native controls were tested directly by the isolated harness.

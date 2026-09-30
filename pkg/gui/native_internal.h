@@ -17,9 +17,10 @@
 @property(nonatomic, assign) id limitTarget;
 @property(nonatomic, assign) SEL limitAction;
 @property(nonatomic, assign, readonly) NSInteger displayedLimitPercent;
+@property(nonatomic, assign) BOOL flowAnimationEnabled;
 @end
 
-@interface BattMenuController : NSObject <NSMenuDelegate> {
+@interface BattMenuController : NSObject <NSMenuDelegate, NSPopoverDelegate> {
     uint64_t _previousCPUTicks[4];
     BOOL _hasCPUSample;
     NSInteger _statsTickCount;
@@ -53,6 +54,13 @@
 @property(nonatomic, retain) NSMenu *memoryAppsMenu;
 @property(nonatomic, retain) NSArray<NSDictionary *> *appStats;
 @property(nonatomic, retain) NSDictionary<NSNumber *, NSNumber *> *previousProcessCPU;
+@property(nonatomic, retain) NSDictionary *previousDiskCounters;
+@property(nonatomic, assign) NSTimeInterval previousDiskSampleTime;
+@property(nonatomic, assign) double diskReadRate;
+@property(nonatomic, assign) double diskWriteRate;
+@property(nonatomic, assign) double diskSpacePercent;
+@property(nonatomic, assign) uint64_t diskTotalBytes;
+@property(nonatomic, assign) uint64_t diskFreeBytes;
 
 - (instancetype)initWithHandle:(uintptr_t)handle version:(NSString *)version;
 - (NSMenuItem *)item:(BattMenuItem)item;
@@ -82,7 +90,12 @@
 - (void)setCustomHeatProtection;
 - (void)refreshPopoverControls;
 - (void)commitLimitFromRail:(BattPowerFlowView *)sender;
+- (BOOL)isDarkWorkActive;
 @end
 
 void BattBuildMenu(BattMenuController *controller, NSString *version);
 void BattApplyTooltips(BattMenuController *controller);
+void BattBuildPopover(BattMenuController *controller);
+void BattRefreshPopover(BattMenuController *controller, double cpu, double memory);
+void BattUpdateStorage(BattMenuController *controller);
+double BattCounterRate(uint64_t previous, uint64_t current, double elapsed);

@@ -1,4 +1,5 @@
 #import "native_internal.h"
+#import <QuartzCore/QuartzCore.h>
 
 static void Text(NSString *value, NSRect rect, CGFloat size, NSFontWeight weight,
                  NSColor *color, NSTextAlignment alignment) {
@@ -50,24 +51,41 @@ static NSColor *FlowColor(void) {
     return [NSColor colorWithCalibratedRed:0.39 green:0.62 blue:0.84 alpha:1];
 }
 
-static void Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
+static NSBezierPath *Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
                  CGFloat startWidth, CGFloat endWidth) {
-    CGFloat thickness = (startWidth + endWidth) / 2;
+    CGFloat thickness = MAX(22, (startWidth + endWidth) / 2);
     CGFloat span = x1 - x0;
     NSBezierPath *path = [NSBezierPath bezierPath];
-    [path moveToPoint:NSMakePoint(x0, y0)];
-    [path curveToPoint:NSMakePoint(x1, y1)
-         controlPoint1:NSMakePoint(x0 + span * 0.45, y0)
-         controlPoint2:NSMakePoint(x1 - span * 0.45, y1)];
-    path.lineWidth = thickness;
-    path.lineCapStyle = NSLineCapStyleRound;
-    [FlowColor() setStroke];
-    [path stroke];
+    CGFloat middle = (x0+x1)/2, center = (y0+y1)/2;
+    [path moveToPoint:NSMakePoint(x0, y0 + thickness/2)];
+    [path curveToPoint:NSMakePoint(middle, center + 5)
+         controlPoint1:NSMakePoint(x0 + span * 0.18, y0 + thickness/2 + 4)
+         controlPoint2:NSMakePoint(middle - span * 0.18, center + 5)];
+    [path curveToPoint:NSMakePoint(x1, y1 + thickness/2)
+         controlPoint1:NSMakePoint(middle + span * 0.18, center + 5)
+         controlPoint2:NSMakePoint(x1 - span * 0.18, y1 + thickness/2 + 4)];
+    [path lineToPoint:NSMakePoint(x1, y1 - thickness/2)];
+    [path curveToPoint:NSMakePoint(middle, center - 5)
+         controlPoint1:NSMakePoint(x1 - span * 0.18, y1 - thickness/2 - 4)
+         controlPoint2:NSMakePoint(middle + span * 0.18, center - 5)];
+    [path curveToPoint:NSMakePoint(x0, y0 - thickness/2)
+         controlPoint1:NSMakePoint(middle - span * 0.18, center - 5)
+         controlPoint2:NSMakePoint(x0 + span * 0.18, y0 - thickness/2 - 4)];
+    [path closePath];
+    NSGradient *gradient = [[[NSGradient alloc] initWithColors:@[
+        [NSColor colorWithCalibratedRed:0.22 green:0.60 blue:0.99 alpha:1],
+        [NSColor colorWithCalibratedRed:0.16 green:0.34 blue:0.62 alpha:1],
+        [NSColor colorWithCalibratedRed:0.28 green:0.65 blue:1 alpha:1]]]
+        autorelease];
+    [gradient drawInBezierPath:path angle:0];
+    [[NSColor colorWithCalibratedRed:0.44 green:0.74 blue:1 alpha:0.45] setStroke];
+    path.lineWidth = 0.6; [path stroke];
+    return path;
 }
 
 // A filled ribbon keeps its own width through a split or merge. Unlike
 // overlapping round-capped strokes, adjacent ribbons share one clean edge.
-static void Ribbon(CGFloat x0, CGFloat top0, CGFloat bottom0,
+static NSBezierPath *Ribbon(CGFloat x0, CGFloat top0, CGFloat bottom0,
                    CGFloat x1, CGFloat top1, CGFloat bottom1) {
     CGFloat span = x1 - x0;
     NSBezierPath *path = [NSBezierPath bezierPath];
@@ -80,8 +98,13 @@ static void Ribbon(CGFloat x0, CGFloat top0, CGFloat bottom0,
          controlPoint1:NSMakePoint(x1 - span * 0.45, bottom1)
          controlPoint2:NSMakePoint(x0 + span * 0.45, bottom0)];
     [path closePath];
-    [FlowColor() setFill];
-    [path fill];
+    NSGradient *gradient = [[[NSGradient alloc] initWithStartingColor:
+        [NSColor colorWithCalibratedRed:0.20 green:0.55 blue:0.96 alpha:1]
+        endingColor:[NSColor colorWithCalibratedRed:0.29 green:0.65 blue:1 alpha:1]] autorelease];
+    [NSGraphicsContext saveGraphicsState]; [path addClip];
+    [gradient drawInRect:NSMakeRect(20, 0, 320, 100) angle:0];
+    [NSGraphicsContext restoreGraphicsState];
+    return path;
 }
 
 static void RoundCap(CGFloat x, CGFloat center, CGFloat diameter) {
@@ -91,7 +114,7 @@ static void RoundCap(CGFloat x, CGFloat center, CGFloat diameter) {
 }
 
 static CGFloat FlowWidth(double watts) {
-    return MIN(16, MAX(7, 4 + sqrt(MAX(0, watts)) * 1.8));
+    return MIN(21, MAX(7, 4 + sqrt(MAX(0, watts)) * 2.2));
 }
 
 static NSString *Watts(double watts) {
@@ -103,6 +126,56 @@ static NSString *Watts(double watts) {
     BOOL _limitDragging;
     BOOL _limitMoved;
     NSPoint _limitDragStart;
+    CAGradientLayer *_flowHighlight;
+}
+
+- (void)dealloc { [_flowHighlight release]; [super dealloc]; }
+- (void)setFlowAnimationEnabled:(BOOL)enabled {
+    _flowAnimationEnabled = enabled && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    if (!_flowAnimationEnabled) [_flowHighlight removeAllAnimations];
+    _flowHighlight.hidden = !_flowAnimationEnabled;
+    [self setNeedsDisplay:YES];
+}
+- (void)updateAnimationMask:(NSBezierPath *)path {
+    if (!_flowAnimationEnabled || !self.window.visible || self.hiddenOrHasHiddenAncestor ||
+        path.elementCount == 0 || NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        [_flowHighlight removeAllAnimations]; _flowHighlight.hidden = YES; return;
+    }
+    self.wantsLayer = YES;
+    if (!_flowHighlight) {
+        _flowHighlight = [[CAGradientLayer alloc] init];
+        _flowHighlight.colors = @[(id)NSColor.clearColor.CGColor,
+            (id)[NSColor.whiteColor colorWithAlphaComponent:0.16].CGColor,
+            (id)NSColor.clearColor.CGColor];
+        _flowHighlight.startPoint = CGPointMake(0, 0.5);
+        _flowHighlight.endPoint = CGPointMake(1, 0.5);
+        _flowHighlight.locations = @[@0, @0.10, @0.20];
+        [self.layer addSublayer:_flowHighlight];
+    }
+    CGMutablePathRef mask = CGPathCreateMutable();
+    for (NSInteger i=0; i<path.elementCount; i++) {
+        NSPoint points[3];
+        switch ([path elementAtIndex:i associatedPoints:points]) {
+            case NSBezierPathElementMoveTo: CGPathMoveToPoint(mask,NULL,points[0].x,points[0].y); break;
+            case NSBezierPathElementLineTo: CGPathAddLineToPoint(mask,NULL,points[0].x,points[0].y); break;
+            case NSBezierPathElementCurveTo: CGPathAddCurveToPoint(mask,NULL,points[0].x,points[0].y,
+                points[1].x,points[1].y,points[2].x,points[2].y); break;
+            case NSBezierPathElementClosePath: CGPathCloseSubpath(mask); break;
+            default: break; // These authored paths contain only cubic curves.
+        }
+    }
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    _flowHighlight.frame = self.bounds;
+    CAShapeLayer *shape = [CAShapeLayer layer]; shape.frame = self.bounds; shape.path = mask;
+    _flowHighlight.mask = shape; _flowHighlight.hidden = NO;
+    [CATransaction commit]; CGPathRelease(mask);
+    if (![_flowHighlight animationForKey:@"flow"]) {
+        CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"locations"];
+        animation.fromValue = @[@-0.2, @-0.1, @0];
+        animation.toValue = @[@1, @1.1, @1.2];
+        animation.duration = 2.8; animation.repeatCount = HUGE_VALF;
+        [_flowHighlight addAnimation:animation forKey:@"flow"];
+    }
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -243,14 +316,23 @@ static NSString *Watts(double watts) {
     NSString *chargeText = self.chargePercent < 0 ? @"—%" :
         [NSString stringWithFormat:@"%ld%%", (long)charge];
 
-    Text(chargeText, NSMakeRect(20, 171, 145, 45), 36, NSFontWeightSemibold,
+    NSString *batterySymbol = [NSString stringWithFormat:@"battery.%ldpercent",
+        (long)(charge >= 90 ? 100 : charge >= 65 ? 75 : charge >= 40 ? 50 : charge >= 15 ? 25 : 0)];
+    Symbol(batterySymbol, NSMakeRect(20, 180, 40, 28), 28, NSColor.labelColor);
+    Text(chargeText, NSMakeRect(70, 171, 145, 45), 36, NSFontWeightSemibold,
          NSColor.labelColor, NSTextAlignmentLeft);
     Text(state, NSMakeRect(20, 148, 235, 20), 12, NSFontWeightRegular,
          NSColor.secondaryLabelColor, NSTextAlignmentLeft);
     if (self.temperatureCelsius > 0) {
+        NSRect pill = NSMakeRect(right - 83, 181, 83, 29);
+        NSColor *temperatureColor = self.heatPaused ? NSColor.systemOrangeColor : NSColor.labelColor;
+        [[temperatureColor colorWithAlphaComponent:0.09] setFill];
+        NSBezierPath *outline = [NSBezierPath bezierPathWithRoundedRect:pill xRadius:9 yRadius:9];
+        [outline fill]; [[temperatureColor colorWithAlphaComponent:0.35] setStroke]; [outline stroke];
+        Symbol(@"thermometer.medium", NSMakeRect(right - 77, 187, 15, 18), 15, temperatureColor);
         Text([NSString stringWithFormat:@"%.1f°C", self.temperatureCelsius],
-             NSMakeRect(right - 56, 148, 56, 20), 12, NSFontWeightMedium,
-             NSColor.labelColor, NSTextAlignmentRight);
+             NSMakeRect(right - 58, 185, 51, 20), 12, NSFontWeightMedium,
+             temperatureColor, NSTextAlignmentRight);
     }
 
     NSRect rail = [self railRect];
@@ -275,6 +357,7 @@ static NSString *Watts(double watts) {
     NSRectFill(NSMakeRect(14, 104, width - 28, 0.7));
 
     if (!self.hasTelemetry) {
+        [self updateAnimationMask:[NSBezierPath bezierPath]];
         Text(@"Power flow unavailable", NSMakeRect(20, 23, width - 40, 40),
              12, NSFontWeightMedium, NSColor.secondaryLabelColor, NSTextAlignmentCenter);
         return;
@@ -284,6 +367,7 @@ static NSString *Watts(double watts) {
     // Its derived system power is then clamped to zero; don't draw that as fact.
     if (charging && (!self.pluggedIn || self.adapterWatts < self.batteryWatts + 0.5 ||
                      self.systemWatts < 0.5)) {
+        [self updateAnimationMask:[NSBezierPath bezierPath]];
         Text(@"Power readings updating", NSMakeRect(20, 52, width - 40, 20),
              12, NSFontWeightMedium, NSColor.labelColor, NSTextAlignmentCenter);
         Text(@"Adapter and battery data disagree", NSMakeRect(20, 30, width - 40, 18),
@@ -291,20 +375,21 @@ static NSString *Watts(double watts) {
         return;
     }
 
-    NSColor *muted = NSColor.secondaryLabelColor;
-    CGFloat x0 = 67, x1 = width - 67;
+    NSColor *muted = [NSColor colorWithCalibratedWhite:dark ? 0.75 : 0.36 alpha:1];
+    NSBezierPath *mask = [NSBezierPath bezierPath];
+    CGFloat x0 = 54, x1 = width - 54;
     if (adapter && charging) {
         CGFloat split = 128, center = 49;
         CGFloat toBattery = FlowWidth(self.batteryWatts);
         CGFloat toMac = FlowWidth(self.systemWatts);
         CGFloat total = toBattery + toMac;
         CGFloat boundary = center - total / 2 + toMac;
-        Ribbon(split, center + total / 2, boundary,
-               x1, 70 + toBattery / 2, 70 - toBattery / 2);
-        Ribbon(split, boundary, center - total / 2,
-               x1, 28 + toMac / 2, 28 - toMac / 2);
-        [FlowColor() setFill];
-        NSRectFill(NSMakeRect(x0, center - total / 2, split - x0 + 1, total));
+        [mask appendBezierPath:Ribbon(split, center + total / 2, boundary,
+               x1, 70 + toBattery / 2, 70 - toBattery / 2)];
+        [mask appendBezierPath:Ribbon(split, boundary, center - total / 2,
+               x1, 28 + toMac / 2, 28 - toMac / 2)];
+        [mask appendBezierPath:Ribbon(x0, center+total/2, center-total/2,
+            split, center+total/2, center-total/2)];
         FlowNode(@"powerplug.fill", NSMakeRect(20, 32, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(width - 54, 53, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 11, 34, 34), muted, dark);
@@ -323,12 +408,12 @@ static NSString *Watts(double watts) {
         CGFloat fromBattery = FlowWidth(-self.batteryWatts);
         CGFloat total = fromAdapter + fromBattery;
         CGFloat boundary = center - total / 2 + fromBattery;
-        Ribbon(x0, 70 + fromAdapter / 2, 70 - fromAdapter / 2,
-               join, center + total / 2, boundary);
-        Ribbon(x0, 28 + fromBattery / 2, 28 - fromBattery / 2,
-               join, boundary, center - total / 2);
-        [FlowColor() setFill];
-        NSRectFill(NSMakeRect(join, center - total / 2, x1 - join, total));
+        [mask appendBezierPath:Ribbon(x0, 70 + fromAdapter / 2, 70 - fromAdapter / 2,
+               join, center + total / 2, boundary)];
+        [mask appendBezierPath:Ribbon(x0, 28 + fromBattery / 2, 28 - fromBattery / 2,
+               join, boundary, center - total / 2)];
+        [mask appendBezierPath:Ribbon(join, center+total/2, center-total/2,
+            x1, center+total/2, center-total/2)];
         FlowNode(@"powerplug.fill", NSMakeRect(20, 53, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(20, 11, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 32, 34, 34), muted, dark);
@@ -344,13 +429,13 @@ static NSString *Watts(double watts) {
     } else {
         BOOL fromBattery = !adapter;
         double watts = fromBattery ? -self.batteryWatts : self.adapterWatts;
-        if (watts > 0.25) Flow(x0, 50, x1, 50, FlowWidth(watts), FlowWidth(watts));
+        if (watts > 0.25) [mask appendBezierPath:
+            Flow(x0, 50, x1, 50, 28, 28)];
         FlowNode(fromBattery ? @"battery.100percent" : @"powerplug.fill",
                  NSMakeRect(20, 33, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 33, 34, 34), muted, dark);
-        Text([NSString stringWithFormat:@"%@ → Mac · %@",
-              fromBattery ? @"Battery" : @"Adapter", Watts(watts)],
-             NSMakeRect(75, 74, width - 150, 19), 11, NSFontWeightSemibold,
+        Text(Watts(watts),
+             NSMakeRect(75, 78, width - 150, 19), 14, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentCenter);
         Text(fromBattery ? @"Battery" : @"Adapter", NSMakeRect(12, 9, 50, 16),
              10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
@@ -361,6 +446,7 @@ static NSString *Watts(double watts) {
                  10, NSFontWeightMedium, muted, NSTextAlignmentCenter);
         }
     }
+    [self updateAnimationMask:mask];
 }
 
 @end

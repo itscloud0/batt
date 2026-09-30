@@ -2,7 +2,7 @@ package gui
 
 /*
 #cgo CFLAGS: -mmacosx-version-min=13.0
-#cgo LDFLAGS: -mmacosx-version-min=13.0 -framework Cocoa -framework ServiceManagement -framework CoreFoundation
+#cgo LDFLAGS: -mmacosx-version-min=13.0 -framework Cocoa -framework ServiceManagement -framework CoreFoundation -framework IOKit -framework QuartzCore
 #include <stdlib.h>
 #include "native.h"
 */

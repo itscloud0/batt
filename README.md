@@ -6,7 +6,15 @@ WattNook answers two questions without making you open three utilities: **what i
 
 | Battery | System | Focus |
 | --- | --- | --- |
-| Charge limit, charging state, battery temperature, approximate power paths | CPU load, physical memory used, disk space used, top apps with confirmed normal Quit | Turn the display off while the Mac stays awake; wake the display normally with a key or trackpad |
+| Charge limit, charging state, battery temperature, approximate power paths | CPU load, physical memory used, internal disk read/write MB/s and space used, top apps with confirmed normal Quit | Turn the display off while the Mac stays awake; wake the display normally with a key or trackpad |
+
+## Two views, one menu-bar item
+
+**Battery** keeps charge controls, thermal status, an animated power ribbon, a small system summary and two resource-heavy apps together. **System** shows the CPU/memory-sorted app list, app icons, confirmed normal Quit actions and a shortcut to Activity Monitor.
+
+Disk activity is the built-in drive's read + write throughput in decimal MB/s, sampled every two seconds. The System view separates reads and writes and also shows storage occupancy and free space. It is **not** an SSD utilization percentage. Unavailable counters stay blank until a valid sample arrives; disk reconnects and counter resets do not become traffic spikes. Memory is physical memory used, not memory pressure; per-app memory is resident memory including helper processes. Per-app CPU follows the one-core = 100% convention and can exceed 100%.
+
+The ribbon has separate charging, battery-only, held, hybrid and unavailable states. Labels stay outside the flow. Its subtle highlight runs only while the Battery popover is visible, and respects Reduce Motion. The charge marker still supports dragging and arrow keys.
 
 > [!IMPORTANT]
 > **Experimental source build, no release binary yet.** The app still uses a privileged `batt-thermal` daemon and socket. Do not run it beside another `batt` daemon. Watt values are estimates from macOS telemetry, not measurements at the wall. When readings disagree, the UI withholds the misleading split instead of inventing a zero-watt system load.

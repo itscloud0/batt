@@ -4,51 +4,6 @@
 
 static const NSTimeInterval BattMenuUpdateInterval = 10.0;
 
-static NSButton *BattPopoverButton(NSRect frame, NSString *title, NSString *symbol,
-                                   id target, SEL action) {
-    NSButton *button = [NSButton buttonWithTitle:title target:target action:action];
-    button.frame = frame;
-    button.bordered = NO;
-    button.alignment = NSTextAlignmentLeft;
-    button.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
-    NSImage *image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
-    button.image = [image imageWithSymbolConfiguration:
-        [NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightRegular]];
-    button.imagePosition = NSImageLeft;
-    button.imageHugsTitle = YES;
-    if (title.length > 0) button.title = title;
-    return button;
-}
-
-@interface BattPopoverBackground : NSView
-@end
-
-@implementation BattPopoverBackground
-- (void)drawRect:(NSRect)dirtyRect {
-    (void)dirtyRect;
-    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
-        @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    NSColor *surface = dark
-        ? [NSColor colorWithCalibratedRed:0.12 green:0.14 blue:0.18 alpha:1]
-        : [NSColor colorWithCalibratedRed:0.97 green:0.98 blue:0.99 alpha:1];
-    [surface setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:12 yRadius:12] fill];
-}
-@end
-
-@interface BattPopoverDivider : NSView
-@end
-
-@implementation BattPopoverDivider
-- (void)drawRect:(NSRect)dirtyRect {
-    (void)dirtyRect;
-    BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:
-        @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    [[NSColor colorWithCalibratedWhite:dark ? 0.28 : 0.80 alpha:1] setFill];
-    NSRectFill(self.bounds);
-}
-@end
-
 static NSMenuItem *ActionItem(BattMenuController *controller,
                               NSString *title,
                               NSString *key,
@@ -107,6 +62,9 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         _cpuPercent = -1;
         _memoryPercent = -1;
         _diskPercent = -1;
+        _diskReadRate = -1;
+        _diskWriteRate = -1;
+        _diskSpacePercent = -1;
         _powerFlowView = [[BattPowerFlowView alloc] initWithFrame:NSMakeRect(0, 0, 340, 220)];
 
         BattBuildMenu(self, version);
@@ -158,6 +116,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [_memoryAppsMenu release];
     [_appStats release];
     [_previousProcessCPU release];
+    [_previousDiskCounters release];
     [_menu release];
     [_items release];
     [super dealloc];
@@ -225,115 +184,10 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 }
 
 - (void)buildPopover {
-    NSView *content = [[[BattPopoverBackground alloc]
-        initWithFrame:NSMakeRect(0, 0, 340, 432)] autorelease];
-    content.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    self.powerFlowView.frame = NSMakeRect(0, 212, 340, 220);
-    self.powerFlowView.limitTarget = self;
-    self.powerFlowView.limitAction = @selector(commitLimitFromRail:);
-    [content addSubview:self.powerFlowView];
-
-    // The charge limit is both a draggable marker and a menu of exact values.
-    self.chargeButton = BattPopoverButton(NSMakeRect(218, 319, 102, 20),
-        @"Limit 80%  ›", @"", self, @selector(showChargeLimits:));
-    self.chargeButton.image = nil;
-    self.chargeButton.alignment = NSTextAlignmentRight;
-    self.chargeButton.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-    self.chargeButton.toolTip = @"Drag the marker or click for exact charge limits";
-    [content addSubview:self.chargeButton];
-
-    BattPopoverDivider *powerLine = [[[BattPopoverDivider alloc]
-        initWithFrame:NSMakeRect(16, 207, 308, 1)] autorelease];
-    [content addSubview:powerLine];
-    self.heatButton = BattPopoverButton(NSMakeRect(20, 166, 150, 36),
-        @"Heat protection", @"thermometer.medium", self, @selector(showHeatOptions:));
-    self.darkButton = BattPopoverButton(NSMakeRect(174, 166, 146, 36),
-        @"Screen off", @"moon.fill", self, @selector(toggleDarkWorkFromPopover:));
-    for (NSButton *button in @[self.heatButton, self.darkButton]) {
-        button.bordered = YES;
-        button.bezelStyle = NSBezelStyleRounded;
-        button.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-        [content addSubview:button];
-    }
-    BattPopoverDivider *systemLine = [[[BattPopoverDivider alloc]
-        initWithFrame:NSMakeRect(16, 159, 308, 1)] autorelease];
-    [content addSubview:systemLine];
-
-    NSTextField *systemTitle = [NSTextField labelWithString:@"System"];
-    systemTitle.frame = NSMakeRect(20, 134, 100, 19);
-    systemTitle.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
-    [content addSubview:systemTitle];
-    NSButton *more = BattPopoverButton(NSMakeRect(296, 129, 28, 28),
-        @"", @"gearshape", self, @selector(showMoreMenu:));
-    more.toolTip = @"Settings, advanced controls and Quit";
-    more.accessibilityLabel = @"More options";
-    [content addSubview:more];
-
-    self.statsButton = BattPopoverButton(NSMakeRect(20, 105, 94, 26),
-        @"CPU —", @"cpu", self, @selector(showCPUApps:));
-    self.memoryButton = BattPopoverButton(NSMakeRect(120, 105, 94, 26),
-        @"RAM —", @"memorychip", self, @selector(showMemoryApps:));
-    self.diskButton = BattPopoverButton(NSMakeRect(220, 105, 94, 26),
-        @"SSD —", @"internaldrive", self, @selector(showDiagnostics:));
-    for (NSButton *button in @[self.statsButton, self.memoryButton, self.diskButton]) {
-        button.image = nil;
-        button.title = @"—";
-        button.font = [NSFont monospacedDigitSystemFontOfSize:14 weight:NSFontWeightSemibold];
-        [content addSubview:button];
-    }
-    NSArray<NSString *> *captions = @[@"CPU load", @"Memory used", @"Disk space used"];
-    NSArray<NSNumber *> *captionX = @[@20, @120, @220];
-    for (NSInteger index = 0; index < captions.count; index++) {
-        NSTextField *caption = [NSTextField labelWithString:captions[index]];
-        caption.frame = NSMakeRect(captionX[index].doubleValue, 91, 94, 15);
-        caption.font = [NSFont systemFontOfSize:10 weight:NSFontWeightRegular];
-        caption.textColor = NSColor.secondaryLabelColor;
-        [content addSubview:caption];
-    }
-    self.statsButton.toolTip = @"CPU busy; top CPU apps";
-    self.memoryButton.toolTip = @"Physical memory used; top memory apps";
-    self.diskButton.toolTip = @"Storage space used; open diagnostics";
-    BattPopoverDivider *appsLine = [[[BattPopoverDivider alloc]
-        initWithFrame:NSMakeRect(20, 84, 300, 1)] autorelease];
-    [content addSubview:appsLine];
-    NSTextField *appsTitle = [NSTextField labelWithString:@"Apps using most"];
-    appsTitle.frame = NSMakeRect(20, 65, 100, 16);
-    appsTitle.font = [NSFont systemFontOfSize:10 weight:NSFontWeightMedium];
-    appsTitle.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:appsTitle];
-    for (NSInteger index = 0; index < 2; index++) {
-        CGFloat y = index == 0 ? 35 : 7;
-        NSTextField *label = [NSTextField labelWithString:@"Sampling…"];
-        label.frame = NSMakeRect(20, y, 250, 23);
-        label.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-        label.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [content addSubview:label];
-        NSButton *quit = [NSButton buttonWithTitle:@"Quit" target:self
-                                            action:@selector(quitFeaturedApp:)];
-        quit.frame = NSMakeRect(278, y - 1, 46, 25);
-        quit.bezelStyle = NSBezelStyleRounded;
-        quit.font = [NSFont systemFontOfSize:10 weight:NSFontWeightMedium];
-        quit.tag = index;
-        quit.enabled = NO;
-        quit.toolTip = @"Request a normal Quit; you will be asked to confirm";
-        [content addSubview:quit];
-        if (index == 0) {
-            self.cpuTopAppLabel = label;
-            self.cpuQuitButton = quit;
-        } else {
-            self.memoryTopAppLabel = label;
-            self.memoryQuitButton = quit;
-        }
-    }
-
-    NSViewController *controller = [[[NSViewController alloc] init] autorelease];
-    controller.view = content;
-    self.popover = [[[NSPopover alloc] init] autorelease];
-    self.popover.behavior = NSPopoverBehaviorTransient;
-    self.popover.contentSize = NSMakeSize(340, 432);
-    self.popover.contentViewController = controller;
+    BattBuildPopover(self);
     [self refreshPopoverControls];
 }
+
 
 - (void)togglePopover:(id)sender {
     (void)sender;
@@ -355,6 +209,16 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [self.popover showRelativeToRect:self.statusItem.button.bounds
                              ofView:self.statusItem.button
                       preferredEdge:NSRectEdgeMinY];
+}
+
+- (void)popoverDidShow:(NSNotification *)notification {
+    (void)notification;
+    self.powerFlowView.flowAnimationEnabled = !self.powerFlowView.hiddenOrHasHiddenAncestor;
+}
+
+- (void)popoverDidClose:(NSNotification *)notification {
+    (void)notification;
+    self.powerFlowView.flowAnimationEnabled = NO;
 }
 
 - (void)showMenu:(NSMenu *)menu fromButton:(NSButton *)button {
@@ -420,70 +284,9 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 }
 
 - (void)refreshPopoverControls {
-    self.chargeButton.title = [NSString stringWithFormat:@"Limit %ld%%  ›",
-        (long)self.powerFlowView.displayedLimitPercent];
-    NSString *heat = [self item:BattItemHeatProtection].title ?: @"Loading…";
-    NSRange colon = [heat rangeOfString:@": "];
-    heat = colon.location == NSNotFound ? heat :
-        [heat substringFromIndex:NSMaxRange(colon)];
-    if ([heat hasPrefix:@"paused"]) {
-        NSString *label = self.powerFlowView.pluggedIn ? @"Paused · " : @"Cooling · ";
-        heat = [heat stringByReplacingOccurrencesOfString:@"paused (" withString:label];
-        heat = [heat stringByReplacingOccurrencesOfString:@")" withString:@""];
-    } else if ([heat hasPrefix:@"on ("]) {
-        heat = [heat stringByReplacingOccurrencesOfString:@"on (" withString:@"On · "];
-        heat = [heat stringByReplacingOccurrencesOfString:@"°C → " withString:@"/"];
-        heat = [heat stringByReplacingOccurrencesOfString:@")" withString:@""];
-    } else if ([heat isEqualToString:@"off"]) {
-        heat = @"Off";
-    }
-    self.heatButton.title = [heat hasPrefix:@"Paused"] ? @"Heat: charge paused" :
-        ([heat hasPrefix:@"Cooling"] ? @"Heat: cooling" :
-         ([heat isEqualToString:@"Off"] ? @"Heat: off" : @"Heat: on"));
-    self.heatButton.toolTip = [NSString stringWithFormat:@"Heat protection: %@. Click to change thresholds.", heat];
-    self.darkButton.title = [self isDarkWorkActive] ? @"Restore display" : @"Screen off";
-    self.darkButton.toolTip = [self isDarkWorkActive]
-        ? @"Turn the display back on" : @"Turn the display off while the Mac stays awake";
-    self.statsButton.title = [NSString stringWithFormat:@"%@",
-        _cpuPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _cpuPercent]];
-    self.memoryButton.title = [NSString stringWithFormat:@"%@",
-        _memoryPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _memoryPercent]];
-    self.diskButton.title = [NSString stringWithFormat:@"%@",
-        _diskPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _diskPercent]];
-    NSArray<NSDictionary *> *byCPU = [self.appStats sortedArrayUsingComparator:
-        ^NSComparisonResult(NSDictionary *first, NSDictionary *second) {
-            return [second[@"cpu"] compare:first[@"cpu"]];
-        }];
-    NSDictionary *cpuApp = byCPU.firstObject;
-    if ([cpuApp[@"cpu"] doubleValue] < 0.1) cpuApp = nil;
-    NSArray<NSDictionary *> *byMemory = [self.appStats sortedArrayUsingComparator:
-        ^NSComparisonResult(NSDictionary *first, NSDictionary *second) {
-            return [second[@"memory"] compare:first[@"memory"]];
-        }];
-    NSDictionary *memoryApp = nil;
-    for (NSDictionary *candidate in byMemory) {
-        if (![candidate[@"pid"] isEqual:cpuApp[@"pid"]]) {
-            memoryApp = candidate;
-            break;
-        }
-    }
-    self.cpuFeaturedApp = cpuApp;
-    self.memoryFeaturedApp = memoryApp;
-    self.cpuTopAppLabel.stringValue = cpuApp == nil ? @"CPU · sampling" :
-        [NSString stringWithFormat:@"CPU · %@  %.0f%%", cpuApp[@"name"],
-            [cpuApp[@"cpu"] doubleValue]];
-    NSString *memoryAmount = memoryApp == nil ? @"" :
-        [NSByteCountFormatter stringFromByteCount:[memoryApp[@"memory"] longLongValue]
-                                  countStyle:NSByteCountFormatterCountStyleMemory];
-    self.memoryTopAppLabel.stringValue = memoryApp == nil ? @"RAM · no app data" :
-        [NSString stringWithFormat:@"RAM · %@  %@", memoryApp[@"name"], memoryAmount];
-    self.cpuQuitButton.enabled = cpuApp != nil;
-    self.memoryQuitButton.enabled = memoryApp != nil;
-    self.chargeButton.enabled = ![self item:BattItemQuickLimits].hidden;
-    self.heatButton.enabled = ![self item:BattItemHeatProtection].hidden;
-    self.powerFlowView.limitEditable = self.chargeButton.enabled &&
-        [self item:BattItemLimit80].enabled;
+    BattRefreshPopover(self, _cpuPercent, _memoryPercent);
 }
+
 
 - (void)menuDidClose:(NSMenu *)menu {
     (void)menu;
@@ -526,13 +329,8 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
             _memoryPercent = 100.0 * (1.0 - MIN(available, total) / (double)total);
     }
 
-    if (_statsTickCount++ % 15 == 0) {
-        struct statfs volume;
-        if (statfs("/", &volume) == 0 && volume.f_blocks > 0) {
-            _diskPercent = 100.0 * (1.0 -
-                (double)volume.f_bavail / (double)volume.f_blocks);
-        }
-    }
+    BattUpdateStorage(self);
+    _diskPercent = self.diskSpacePercent;
     [self refreshStatusImage];
     [self updateAppStats];
     [self refreshPopoverControls];

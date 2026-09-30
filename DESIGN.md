@@ -3,7 +3,7 @@ name: WattNook
 description: Native Mac battery and system monitor
 colors:
   graphite-surface: "#1F242E"
-  flow-blue: "#639ED6"
+  flow-blue: "#3391F5"
   charging-green: "#34C759"
   low-battery-orange: "#FF9F0A"
   primary-text: "#F5F5F7"
@@ -15,7 +15,7 @@ typography:
     fontWeight: 600
   metric:
     fontFamily: "SF Pro, system-ui"
-    fontSize: "14pt"
+    fontSize: "18pt / 22pt"
     fontWeight: 600
   detail:
     fontFamily: "SF Pro, system-ui"
@@ -43,11 +43,11 @@ Use the system font for native legibility. The battery percentage is 36 pt; syst
 
 ## Layout
 
-The main popover is 340×432 pt. Its 4 pt rhythm groups the 220 pt battery and flow region, a 40 pt action strip, and the system region with three named metrics and two process rows. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols.
+The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus temperature badge, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and two app-icon rows. System follows approved C: detailed metrics, separate disk read/write and storage values, CPU/Memory sort controls, five app rows and Activity Monitor. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols.
 
 ## Elevation & Depth
 
-The surface is flat. Thin dividers and the power-flow ribbon create hierarchy; no nested cards or decorative gradients.
+The graphite surface has a restrained tonal gradient. Translucent buttons share an 8 pt radius and 10 pt icon-to-text gap. The power ribbon has a blue gradient and a travelling highlight driven by Core Animation, only while the Battery view is visible and Reduce Motion is off. App lists remain unboxed.
 
 ## Shapes
 
@@ -60,6 +60,6 @@ The exact charge limit remains available from the rail label. Heat protection an
 ## Do's and Don'ts
 
 - Show `Adapter → Mac`, `To battery`, or `Battery → Mac` beside watt readings.
-- Label CPU as load, RAM as memory used, SSD as space used.
+- Label CPU as load, RAM as memory used, disk activity as MB/s; show space used separately.
 - Show a reading-updating state when adapter and battery telemetry disagree.
 - Never present a derived zero-watt system value as a measured fact.
