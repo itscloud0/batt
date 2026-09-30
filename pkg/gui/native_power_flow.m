@@ -48,7 +48,7 @@ static void FlowNode(NSString *symbol, NSRect rect, NSColor *symbolColor, BOOL d
 }
 
 static NSColor *FlowColor(void) {
-    return [NSColor colorWithCalibratedRed:0.39 green:0.62 blue:0.84 alpha:1];
+    return WattAccentColor();
 }
 
 static NSBezierPath *Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
@@ -72,13 +72,14 @@ static NSBezierPath *Flow(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1,
          controlPoint1:NSMakePoint(middle - span * 0.18, center - 5)
          controlPoint2:NSMakePoint(x0 + span * 0.18, y0 - thickness/2 - 4)];
     [path closePath];
+    NSColor *accent = FlowColor();
     NSGradient *gradient = [[[NSGradient alloc] initWithColors:@[
-        [NSColor colorWithCalibratedRed:0.22 green:0.60 blue:0.99 alpha:1],
-        [NSColor colorWithCalibratedRed:0.16 green:0.34 blue:0.62 alpha:1],
-        [NSColor colorWithCalibratedRed:0.28 green:0.65 blue:1 alpha:1]]]
+        [accent blendedColorWithFraction:0.25 ofColor:NSColor.whiteColor],
+        [accent blendedColorWithFraction:0.40 ofColor:WattSurfaceColor(NO)],
+        [accent blendedColorWithFraction:0.25 ofColor:NSColor.whiteColor]]]
         autorelease];
     [gradient drawInBezierPath:path angle:0];
-    [[NSColor colorWithCalibratedRed:0.44 green:0.74 blue:1 alpha:0.45] setStroke];
+    [[accent colorWithAlphaComponent:0.45] setStroke];
     path.lineWidth = 0.6; [path stroke];
     return path;
 }
@@ -98,9 +99,8 @@ static NSBezierPath *Ribbon(CGFloat x0, CGFloat top0, CGFloat bottom0,
          controlPoint1:NSMakePoint(x1 - span * 0.45, bottom1)
          controlPoint2:NSMakePoint(x0 + span * 0.45, bottom0)];
     [path closePath];
-    NSGradient *gradient = [[[NSGradient alloc] initWithStartingColor:
-        [NSColor colorWithCalibratedRed:0.20 green:0.55 blue:0.96 alpha:1]
-        endingColor:[NSColor colorWithCalibratedRed:0.29 green:0.65 blue:1 alpha:1]] autorelease];
+    NSGradient *gradient = [[[NSGradient alloc] initWithStartingColor:FlowColor()
+        endingColor:[FlowColor() blendedColorWithFraction:0.25 ofColor:NSColor.whiteColor]] autorelease];
     [NSGraphicsContext saveGraphicsState]; [path addClip];
     [gradient drawInRect:NSMakeRect(20, 0, 320, 100) angle:0];
     [NSGraphicsContext restoreGraphicsState];
@@ -324,11 +324,8 @@ static NSString *Watts(double watts) {
     Text(state, NSMakeRect(20, 148, 235, 20), 12, NSFontWeightRegular,
          NSColor.secondaryLabelColor, NSTextAlignmentLeft);
     if (self.temperatureCelsius > 0) {
-        NSRect pill = NSMakeRect(right - 83, 181, 83, 29);
-        NSColor *temperatureColor = self.heatPaused ? NSColor.systemOrangeColor : NSColor.labelColor;
-        [[temperatureColor colorWithAlphaComponent:0.09] setFill];
-        NSBezierPath *outline = [NSBezierPath bezierPathWithRoundedRect:pill xRadius:9 yRadius:9];
-        [outline fill]; [[temperatureColor colorWithAlphaComponent:0.35] setStroke]; [outline stroke];
+        NSColor *temperatureColor = self.heatPaused && self.pluggedIn ?
+            NSColor.systemOrangeColor : NSColor.labelColor;
         Symbol(@"thermometer.medium", NSMakeRect(right - 77, 187, 15, 18), 15, temperatureColor);
         Text([NSString stringWithFormat:@"%.1f°C", self.temperatureCelsius],
              NSMakeRect(right - 58, 185, 51, 20), 12, NSFontWeightMedium,
@@ -342,7 +339,7 @@ static NSString *Watts(double watts) {
     [[NSBezierPath bezierPathWithRoundedRect:rail xRadius:3 yRadius:3] fill];
     if (self.chargePercent >= 0 && charge > 0) {
         NSColor *fillColor = charging ? NSColor.systemGreenColor :
-            (charge <= 20 ? NSColor.systemOrangeColor : NSColor.systemBlueColor);
+            (charge <= 20 ? NSColor.systemOrangeColor : WattAccentColor());
         [fillColor setFill];
         NSRect fill = rail;
         fill.size.width = MAX(6, rail.size.width * charge / 100.0);
@@ -393,15 +390,14 @@ static NSString *Watts(double watts) {
         FlowNode(@"powerplug.fill", NSMakeRect(20, 32, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(width - 54, 53, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 11, 34, 34), muted, dark);
-        Text([NSString stringWithFormat:@"To battery · %@", Watts(self.batteryWatts)],
-             NSMakeRect(135, 85, 136, 16), 10.5, NSFontWeightSemibold,
+        Text([NSString stringWithFormat:@"Battery %@", Watts(self.batteryWatts)],
+             NSMakeRect(120, 85, 160, 16), 11, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentRight);
-        Text([NSString stringWithFormat:@"To Mac · %@", Watts(self.systemWatts)],
-             NSMakeRect(135, 4, 136, 16), 10.5, NSFontWeightSemibold,
+        Text([NSString stringWithFormat:@"Mac %@", Watts(self.systemWatts)],
+             NSMakeRect(120, 4, 160, 16), 11, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentRight);
-        Text([NSString stringWithFormat:@"AC %@", Watts(self.adapterWatts)],
-             NSMakeRect(20, 7, 100, 16), 10, NSFontWeightMedium,
-             muted, NSTextAlignmentLeft);
+        Text(Watts(self.adapterWatts), NSMakeRect(12, 7, 95, 16), 11,
+             NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentLeft);
     } else if (hybrid) {
         CGFloat join = 215, center = 49;
         CGFloat fromAdapter = FlowWidth(self.adapterWatts);
@@ -417,24 +413,30 @@ static NSString *Watts(double watts) {
         FlowNode(@"powerplug.fill", NSMakeRect(20, 53, 34, 34), muted, dark);
         FlowNode(@"battery.100percent", NSMakeRect(20, 11, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 32, 34, 34), muted, dark);
-        Text([NSString stringWithFormat:@"AC · %@", Watts(self.adapterWatts)],
-             NSMakeRect(67, 85, 140, 16), 10.5, NSFontWeightSemibold,
+        Text(Watts(self.adapterWatts),
+             NSMakeRect(60, 85, 130, 16), 11, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentLeft);
-        Text([NSString stringWithFormat:@"Battery · %@", Watts(-self.batteryWatts)],
-             NSMakeRect(67, 4, 140, 16), 10.5, NSFontWeightSemibold,
+        Text(Watts(-self.batteryWatts),
+             NSMakeRect(60, 4, 130, 16), 11, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentLeft);
-        Text([NSString stringWithFormat:@"Mac · %@", Watts(self.systemWatts)],
-             NSMakeRect(217, 7, 65, 16), 10, NSFontWeightMedium,
-             muted, NSTextAlignmentRight);
+        Text(Watts(self.systemWatts), NSMakeRect(203, 4, 83, 16), 11,
+             NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentRight);
     } else {
         BOOL fromBattery = !adapter;
         double watts = fromBattery ? -self.batteryWatts : self.adapterWatts;
         if (watts > 0.25) [mask appendBezierPath:
             Flow(x0, 50, x1, 50, 28, 28)];
+        else {
+            [NSGraphicsContext saveGraphicsState];
+            NSGraphicsContext.currentContext.compositingOperation = NSCompositingOperationSourceOver;
+            NSBezierPath *waiting = Flow(x0,50,x1,50,28,28);
+            [WattSurfaceColor(YES) setFill]; [waiting fill];
+            [NSGraphicsContext restoreGraphicsState];
+        }
         FlowNode(fromBattery ? @"battery.100percent" : @"powerplug.fill",
                  NSMakeRect(20, 33, 34, 34), muted, dark);
         FlowNode(@"laptopcomputer", NSMakeRect(width - 54, 33, 34, 34), muted, dark);
-        Text(Watts(watts),
+        Text(watts > 0.25 ? Watts(watts) : @"Power readings updating…",
              NSMakeRect(75, 78, width - 150, 19), 14, NSFontWeightSemibold,
              NSColor.labelColor, NSTextAlignmentCenter);
         Text(fromBattery ? @"Battery" : @"Adapter", NSMakeRect(12, 9, 50, 16),

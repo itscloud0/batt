@@ -36,20 +36,25 @@ int main(int argc, const char *argv[]) {
         assert(BattCounterRate(0,100,0) == -1);
         assert(BattCounterRate(0,100,NAN) == -1);
         [NSApplication sharedApplication];
+        // This executable has no app bundle: preferences are isolated from WattNook.
+        assert(NSBundle.mainBundle.bundleIdentifier == nil);
+        for (NSString *key in @[@"WattNookPalette",@"WattNookMenuMetrics",@"WattNookMenuBatteryIcon"])
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
         NSString *directory = [NSString stringWithUTF8String:argv[1]];
         [[NSFileManager defaultManager] createDirectoryAtPath:directory
             withIntermediateDirectories:YES attributes:nil error:nil];
         BattMenuController *c = [[BattMenuController alloc] init];
         c.items = [NSMutableDictionary dictionary];
+        c.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
         c.powerFlowView = [[[BattPowerFlowView alloc] initWithFrame:NSMakeRect(0,0,360,220)] autorelease];
         c.diskReadRate = 12400000; c.diskWriteRate = 2100000;
         c.diskSpacePercent = 73; c.diskTotalBytes = 500000000000; c.diskFreeBytes = 135000000000;
         c.appStats = @[
             @{@"pid":@123, @"name":@"ChatGPT", @"path":@"/Applications/ChatGPT.app", @"cpu":@9, @"memory":@780000000},
             @{@"pid":@124, @"name":@"Warp", @"path":@"/Applications/Warp.app", @"cpu":@6, @"memory":@1370000000},
-            @{@"pid":@125, @"name":@"Safari", @"path":@"/System/Applications/Safari.app", @"cpu":@4, @"memory":@500000000},
+            @{@"pid":@125, @"name":@"Safari", @"path":@"/Applications/Safari.app", @"cpu":@4, @"memory":@500000000},
             @{@"pid":@126, @"name":@"Finder", @"path":@"/System/Library/CoreServices/Finder.app", @"cpu":@1, @"memory":@180000000},
-            @{@"pid":@127, @"name":@"An application with a very long name", @"path":@"/Applications/Utilities/Terminal.app", @"cpu":@0, @"memory":@180000000}];
+            @{@"pid":@127, @"name":@"An application with a very long name", @"path":@"/System/Applications/Utilities/Terminal.app", @"cpu":@0, @"memory":@180000000}];
         BattBuildPopover(c);
         NSView *view = c.popover.contentViewController.view;
         NSWindow *window = [[NSWindow alloc] initWithContentRect:view.bounds
@@ -87,6 +92,53 @@ int main(int argc, const char *argv[]) {
         Capture(view,directory,@"system-cpu");
         [FindButton(view,@"Memory") performClick:nil];
         Capture(view,directory,@"system-memory");
+        NSMutableArray *diskApps = [NSMutableArray array];
+        for (NSDictionary *app in c.appStats) {
+            NSMutableDictionary *sample = [[app mutableCopy] autorelease];
+            sample[@"disk"] = @([sample[@"cpu"] doubleValue]*1000000);
+            sample[@"diskRead"] = sample[@"disk"]; sample[@"diskWrite"] = @0;
+            [diskApps addObject:sample];
+        }
+        c.appStats = diskApps;
+        [FindButton(view,@"Disk") performClick:nil]; Capture(view,directory,@"system-disk");
+        NSButton *gear = FindButton(view,@""); assert(gear);
+        [gear performClick:nil]; Capture(view,directory,@"settings");
+        [FindButton(view,@"Mint") performClick:nil];
+        assert([[NSUserDefaults.standardUserDefaults stringForKey:@"WattNookPalette"] isEqual:@"Mint"]);
+        [FindButton(view,@"Memory used") performClick:nil];
+        [FindButton(view,@"SSD space used") performClick:nil];
+        [FindButton(view,@"Battery icon") performClick:nil];
+        assert([WattMenuMetrics() isEqual:@[@"CPU"]] && !WattMenuBatteryIcon());
+        [FindButton(view,@"CPU load") performClick:nil];
+        assert(WattMenuMetrics().count == 0 && WattMenuBatteryIcon());
+        [FindButton(view,@"Battery percentage") performClick:nil];
+        [FindButton(view,@"Battery icon") performClick:nil];
+        assert([WattMenuMetrics() isEqual:@[@"Battery"]] && !WattMenuBatteryIcon());
+        [FindButton(view,@"Battery") performClick:nil];
+        Capture(view,directory,@"palette-mint");
+        [gear performClick:nil]; [FindButton(view,@"Blue") performClick:nil];
+        [FindButton(view,@"Battery") performClick:nil];
+        c.powerFlowView.pluggedIn = YES; c.powerFlowView.adapterWatts = 18.9;
+        c.powerFlowView.batteryWatts = 0; c.powerFlowView.systemWatts = 18.9;
+        c.powerFlowView.heatPaused = YES; c.powerFlowView.hasTelemetry = YES;
+        [gear performClick:nil]; [FindButton(view,@"Mint") performClick:nil];
+        [FindButton(view,@"Battery") performClick:nil]; Capture(view,directory,@"palette-mint");
+        [gear performClick:nil]; [FindButton(view,@"Violet") performClick:nil];
+        [FindButton(view,@"Battery") performClick:nil]; Capture(view,directory,@"palette-violet");
+        [gear performClick:nil]; [FindButton(view,@"Amber") performClick:nil];
+        [FindButton(view,@"Battery") performClick:nil]; Capture(view,directory,@"palette-amber");
+        [gear performClick:nil]; [FindButton(view,@"Blue") performClick:nil];
+        [FindButton(view,@"Battery") performClick:nil];
+        BattApplyBatterySnapshot(c,@{@"ExternalConnected":@NO,@"InstantAmperage":@-900,
+            @"Voltage":@12000,@"CurrentCapacity":@64,@"AppleRawMaxCapacity":@4003,@"DesignCapacity":@4629,
+            @"CycleCount":@330,@"PowerTelemetryData":@{@"SystemPowerIn":@22000}});
+        assert(!c.powerFlowView.pluggedIn && c.powerFlowView.adapterWatts == 0);
+        assert(fabs(c.powerFlowView.batteryWatts+10.8)<0.0001);
+        assert(fabs(c.powerFlowView.systemWatts-10.8)<0.0001);
+        Capture(view,directory,@"unplug-transition");
+        BattApplyBatterySnapshot(c,@{@"ExternalConnected":@NO,@"InstantAmperage":@0,
+            @"Voltage":@12000,@"CurrentCapacity":@64});
+        Capture(view,directory,@"transition-waiting");
         [FindButton(view,@"Battery") performClick:nil]; assert(!c.powerFlowView.hiddenOrHasHiddenAncestor);
         c.appStats = @[]; c.diskReadRate = -1; c.diskWriteRate = -1;
         BattRefreshPopover(c,-1,-1);
@@ -95,6 +147,7 @@ int main(int argc, const char *argv[]) {
         c.previousDiskSampleTime -= 1;
         BattUpdateStorage(c);
         assert(c.previousDiskCounters.count == 0 || (c.diskReadRate >= 0 && c.diskWriteRate >= 0));
+        [c updateAppStats];
         [FindButton(view,@"Battery") performClick:nil];
         c.powerFlowView.hasTelemetry = YES;
         c.powerFlowView.pluggedIn = YES;
@@ -116,6 +169,8 @@ int main(int argc, const char *argv[]) {
         NSLog(@"Native checks passed; internal disks: %lu, read %.1f B/s, write %.1f B/s",
             (unsigned long)c.previousDiskCounters.count,c.diskReadRate,c.diskWriteRate);
         [window release]; [c release];
+        for (NSString *key in @[@"WattNookPalette",@"WattNookMenuMetrics",@"WattNookMenuBatteryIcon"])
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
     }
     return 0;
 }

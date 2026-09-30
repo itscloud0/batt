@@ -44,7 +44,8 @@ static NSTextField *Label(NSView *parent, NSRect frame, NSString *text,
     NSRect surface = NSInsetRect(self.bounds, 0.5, 0.5);
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:surface xRadius:8 yRadius:8];
     if (!_plain || _hover || _selected) {
-        NSColor *color = _selected ? NSColor.systemBlueColor :
+        NSColor *color = _selected ? [WattAccentColor() blendedColorWithFraction:0.40
+            ofColor:NSColor.blackColor] :
             [NSColor.whiteColor colorWithAlphaComponent:self.highlighted ? 0.19 :
                 (_hover ? 0.14 : 0.075)];
         [color setFill]; [path fill];
@@ -99,7 +100,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 @interface WattAppRow : NSView
 @property(nonatomic, retain) NSDictionary *sample;
 @property(nonatomic, assign) BattMenuController *controller;
-- (void)update:(NSDictionary *)sample memory:(BOOL)memory;
+- (void)update:(NSDictionary *)sample metric:(NSInteger)metric;
 @end
 @implementation WattAppRow {
     NSImageView *_icon;
@@ -122,7 +123,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     return self;
 }
 - (void)dealloc { [_sample release]; [super dealloc]; }
-- (void)update:(NSDictionary *)sample memory:(BOOL)memory {
+- (void)update:(NSDictionary *)sample metric:(NSInteger)metric {
     BOOL changed = ![sample[@"path"] isEqual:self.sample[@"path"]];
     self.sample = sample;
     self.hidden = sample == nil;
@@ -130,11 +131,15 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     if (changed) _icon.image = [NSWorkspace.sharedWorkspace iconForFile:sample[@"path"]];
     _name.stringValue = sample[@"name"] ?: @"Application";
     _name.toolTip = _name.stringValue;
-    _amount.stringValue = memory ? [NSByteCountFormatter
+    _amount.stringValue = metric == 2 ? ([sample[@"disk"] doubleValue] < 0 || !sample[@"disk"] ?
+        @"—" : [NSString stringWithFormat:@"%.1f MB/s",[sample[@"disk"] doubleValue]/1000000]) :
+        metric == 1 ? [NSByteCountFormatter
         stringFromByteCount:[sample[@"memory"] longLongValue]
         countStyle:NSByteCountFormatterCountStyleMemory] :
         [NSString stringWithFormat:@"%.0f%% CPU", [sample[@"cpu"] doubleValue]];
-    _amount.toolTip = memory ? @"Resident memory, including helper processes" :
+    _amount.toolTip = metric == 2 ? [NSString stringWithFormat:@"Read %.1f MB/s · Write %.1f MB/s; includes helpers, all volumes",
+        [sample[@"diskRead"] doubleValue]/1000000,[sample[@"diskWrite"] doubleValue]/1000000] :
+        metric == 1 ? @"Resident memory, including helper processes" :
         @"CPU across cores; 100% is one full CPU core";
     _quit.accessibilityLabel = [@"Quit " stringByAppendingString:_name.stringValue];
 }
@@ -150,34 +155,57 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 }
 @end
 
+@interface WattStorageBar : NSView
+@property(nonatomic, assign) double fraction;
+@end
+@implementation WattStorageBar
+- (void)drawRect:(NSRect)rect {
+    (void)rect;
+    [[NSColor.whiteColor colorWithAlphaComponent:0.13] setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:3 yRadius:3] fill];
+    if (self.fraction >= 0 && isfinite(self.fraction)) {
+        NSRect fill = self.bounds; fill.size.width *= MAX(0,MIN(1,self.fraction));
+        [WattAccentColor() setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:fill xRadius:3 yRadius:3] fill];
+    }
+}
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSString *)accessibilityRole { return NSAccessibilityProgressIndicatorRole; }
+- (NSString *)accessibilityLabel { return @"SSD space used"; }
+- (id)accessibilityValue { return self.fraction < 0 ? nil : @(self.fraction*100); }
+@end
+
 @interface WattDashboard : NSView
 @property(nonatomic, assign) BattMenuController *controller;
 - (void)refreshCPU:(double)cpu memory:(double)memory;
 @end
 @implementation WattDashboard {
-    NSView *_batteryPage, *_systemPage;
-    WattButton *_batteryTab, *_systemTab, *_cpuSort, *_memorySort;
-    NSMutableArray *_summary, *_details, *_featured, *_rows;
-    NSTextField *_storage, *_read, *_write, *_footer, *_empty, *_overviewEmpty;
-    BOOL _system, _sortMemory;
+    NSView *_batteryPage, *_systemPage, *_settingsPage;
+    WattButton *_batteryTab, *_systemTab, *_cpuSort, *_memorySort, *_diskSort;
+    NSMutableArray *_summary, *_details, *_rows, *_paletteButtons, *_metricChecks;
+    NSTextField *_storage, *_read, *_write, *_footer, *_empty, *_usedSpace, *_freeSpace;
+    WattStorageBar *_storageBar;
+    BOOL _system, _settings;
+    NSInteger _sortMetric;
     double _cpu, _memory;
 }
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _summary = [[NSMutableArray alloc] init]; _details = [[NSMutableArray alloc] init];
-        _featured = [[NSMutableArray alloc] init]; _rows = [[NSMutableArray alloc] init];
+        _rows = [[NSMutableArray alloc] init];
+        _paletteButtons = [[NSMutableArray alloc] init]; _metricChecks = [[NSMutableArray alloc] init];
     }
     return self;
 }
 - (void)dealloc {
-    [_summary release]; [_details release]; [_featured release]; [_rows release];
+    [_summary release]; [_details release]; [_rows release];
+    [_paletteButtons release]; [_metricChecks release];
     [super dealloc];
 }
 - (void)drawRect:(NSRect)rect {
     (void)rect;
-    NSGradient *surface = [[[NSGradient alloc] initWithStartingColor:
-        [NSColor colorWithCalibratedRed:0.15 green:0.18 blue:0.22 alpha:1]
-        endingColor:[NSColor colorWithCalibratedRed:0.105 green:0.125 blue:0.16 alpha:1]] autorelease];
+    NSGradient *surface = [[[NSGradient alloc] initWithStartingColor:WattSurfaceColor(YES)
+        endingColor:WattSurfaceColor(NO)] autorelease];
     [surface drawInRect:self.bounds angle:90];
 }
 - (void)line:(NSView *)parent y:(CGFloat)y {
@@ -187,7 +215,7 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
 - (void)build {
     Label(self, NSMakeRect(20, 449, 230, 17), @"WattNook", 11, YES);
     WattButton *settings = Button(self, NSMakeRect(318, 440, 26, 28), @"", @"gearshape",
-        self.controller, @selector(showMoreMenu:)); settings.plain = YES;
+        self, @selector(settings:)); settings.plain = YES;
     _batteryTab = Button(self, NSMakeRect(20, 407, 156, 29), @"Battery", @"battery.100percent",
         self, @selector(battery:));
     _systemTab = Button(self, NSMakeRect(184, 407, 156, 29), @"System", @"chart.bar.fill",
@@ -195,6 +223,8 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     _batteryPage = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 408)] autorelease];
     _systemPage = [[[NSView alloc] initWithFrame:_batteryPage.frame] autorelease];
     [self addSubview:_batteryPage]; [self addSubview:_systemPage]; _systemPage.hidden = YES;
+    _settingsPage = [[[NSView alloc] initWithFrame:_batteryPage.frame] autorelease];
+    [self addSubview:_settingsPage]; _settingsPage.hidden = YES;
     BattMenuController *c = self.controller;
     c.powerFlowView.frame = NSMakeRect(0, 188, 360, 220);
     c.powerFlowView.limitTarget = c; c.powerFlowView.limitAction = @selector(commitLimitFromRail:);
@@ -229,19 +259,21 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
         Label(_systemPage, NSMakeRect(24+i*110, 328, 100, 16),
             @[@"CPU load", @"Memory used", @"Disk MB/s"][i], 11, NO);
     }
-    // Overview is deliberately only two rows; the full list is one click away.
-    for (NSInteger i = 0; i < 2; i++) {
-        WattAppRow *row = [[[WattAppRow alloc] initWithFrame:NSMakeRect(24, 40-i*34, 312, 34)] autorelease];
-        [_batteryPage addSubview:row]; row.controller = c; [_featured addObject:row];
-    }
-    _overviewEmpty = Label(_batteryPage, NSMakeRect(24, 24, 312, 20),
-        @"Collecting app samples…", 11, NO);
+    WattButton *storage = Button(_batteryPage,NSMakeRect(20,51,105,22),@"SSD storage ›",@"",self,@selector(metric:));
+    storage.plain = YES; storage.tag = 2;
+    _usedSpace = Label(_batteryPage,NSMakeRect(24,27,155,19),@"Used —",12,NO);
+    _freeSpace = Label(_batteryPage,NSMakeRect(182,27,154,19),@"Free —",12,NO);
+    _freeSpace.alignment = NSTextAlignmentRight;
+    _storageBar = [[[WattStorageBar alloc] initWithFrame:NSMakeRect(24,14,312,6)] autorelease];
+    _storageBar.fraction = -1; [_batteryPage addSubview:_storageBar];
     _read = Label(_systemPage, NSMakeRect(24, 303, 150, 17), @"Read —", 11, NO);
     _write = Label(_systemPage, NSMakeRect(184, 303, 155, 17), @"Write —", 11, NO);
     _storage = Label(_systemPage, NSMakeRect(24, 280, 312, 17), @"Storage sampling…", 11, NO);
     [self line:_systemPage y:268];
-    _cpuSort = Button(_systemPage, NSMakeRect(20, 229, 156, 29), @"CPU", @"", self, @selector(sort:));
-    _memorySort = Button(_systemPage, NSMakeRect(184, 229, 156, 29), @"Memory", @"", self, @selector(sort:));
+    _cpuSort = Button(_systemPage, NSMakeRect(20,229,101,29), @"CPU", @"", self, @selector(sort:));
+    _memorySort = Button(_systemPage, NSMakeRect(129,229,101,29), @"Memory", @"", self, @selector(sort:));
+    _diskSort = Button(_systemPage,NSMakeRect(238,229,102,29),@"Disk",@"",self,@selector(sort:));
+    _diskSort.tag = 2;
     _cpuSort.selected = YES; _memorySort.tag = 1;
     for (NSInteger i = 0; i < 5; i++) {
         WattAppRow *row = [[[WattAppRow alloc] initWithFrame:NSMakeRect(24, 190-i*34, 312, 34)] autorelease];
@@ -252,20 +284,60 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
         @"Open Activity Monitor ↗", @"waveform.path.ecg", self, @selector(activity:)); activity.plain = YES;
     _footer = Label(_systemPage, NSMakeRect(24, 2, 312, 16), @"", 10, NO);
     _footer.alignment = NSTextAlignmentCenter;
+    Label(_settingsPage,NSMakeRect(24,367,312,24),@"Appearance",16,YES);
+    Label(_settingsPage,NSMakeRect(24,341,312,18),@"Palette",12,NO);
+    NSArray *palettes = @[@"Blue",@"Mint",@"Violet",@"Amber"];
+    for (NSInteger i=0;i<palettes.count;i++) {
+        WattButton *palette = Button(_settingsPage,NSMakeRect(24+i*79,302,73,30),
+            palettes[i],@"",self,@selector(palette:));
+        palette.tag = i; [_paletteButtons addObject:palette];
+    }
+    [self line:_settingsPage y:281];
+    Label(_settingsPage,NSMakeRect(24,245,312,24),@"Menu bar",16,YES);
+    NSArray *titles = @[@"CPU load",@"Memory used",@"SSD space used",@"Battery percentage",@"Battery icon"];
+    for (NSInteger i=0;i<titles.count;i++) {
+        NSButton *check = [NSButton checkboxWithTitle:titles[i] target:self action:@selector(menuMetric:)];
+        check.frame = NSMakeRect(24,212-i*30,312,24); check.tag = i;
+        check.font = [NSFont systemFontOfSize:12];
+        [_settingsPage addSubview:check]; [_metricChecks addObject:check];
+    }
+    Label(_settingsPage,NSMakeRect(24,51,312,27),@"Choose any combination. Changes are saved.",10,NO);
+    Button(_settingsPage,NSMakeRect(24,13,312,30),@"Advanced controls…",@"slider.horizontal.3",
+        c,@selector(showMoreMenu:));
 }
-- (void)battery:(id)sender { (void)sender; _system = NO; [self selectPage]; }
-- (void)system:(id)sender { (void)sender; _system = YES; [self selectPage]; }
+- (void)battery:(id)sender { (void)sender; _system = NO; _settings = NO; [self selectPage]; }
+- (void)system:(id)sender { (void)sender; _system = YES; _settings = NO; [self selectPage]; }
+- (void)settings:(id)sender { (void)sender; _settings = !_settings; [self selectPage]; }
+- (void)palette:(NSButton *)sender {
+    [NSUserDefaults.standardUserDefaults setObject:@[@"Blue",@"Mint",@"Violet",@"Amber"][sender.tag]
+        forKey:@"WattNookPalette"];
+    [self refreshCPU:_cpu memory:_memory]; [self setNeedsDisplay:YES];
+    for (NSView *view in self.subviews) [view setNeedsDisplay:YES];
+}
+- (void)menuMetric:(NSButton *)sender {
+    (void)sender;
+    NSMutableArray *metrics = [NSMutableArray array];
+    NSArray *names = @[@"CPU",@"RAM",@"SSD",@"Battery"];
+    for (NSInteger i=0;i<4;i++)
+        if (((NSButton *)_metricChecks[i]).state == NSControlStateValueOn) [metrics addObject:names[i]];
+    BOOL icon = ((NSButton *)_metricChecks[4]).state == NSControlStateValueOn;
+    if (metrics.count == 0 && !icon) icon = YES; // Keep a way back into the app.
+    [NSUserDefaults.standardUserDefaults setObject:metrics forKey:@"WattNookMenuMetrics"];
+    [NSUserDefaults.standardUserDefaults setBool:icon forKey:@"WattNookMenuBatteryIcon"];
+    [self.controller refreshStatusImage]; [self refreshCPU:_cpu memory:_memory];
+}
 - (void)selectPage {
-    _batteryPage.hidden = _system; _systemPage.hidden = !_system;
-    _batteryTab.selected = !_system; _systemTab.selected = _system;
-    self.controller.powerFlowView.flowAnimationEnabled = !_system && self.window.visible;
+    _batteryPage.hidden = _system || _settings; _systemPage.hidden = !_system || _settings;
+    _settingsPage.hidden = !_settings;
+    _batteryTab.selected = !_system && !_settings; _systemTab.selected = _system && !_settings;
+    self.controller.powerFlowView.flowAnimationEnabled = !_system && !_settings && self.window.visible;
     [self refreshCPU:_cpu memory:_memory];
 }
 - (void)metric:(NSButton *)sender {
-    if (sender.tag < 2) _sortMemory = sender.tag == 1;
+    _sortMetric = sender.tag;
     [self system:sender];
 }
-- (void)sort:(NSButton *)sender { _sortMemory = sender.tag == 1; [self refreshCPU:_cpu memory:_memory]; }
+- (void)sort:(NSButton *)sender { _sortMetric = sender.tag; [self refreshCPU:_cpu memory:_memory]; }
 - (void)activity:(id)sender {
     (void)sender;
     [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:
@@ -304,27 +376,33 @@ static WattButton *Button(NSView *parent, NSRect frame, NSString *title,
     c.chargeButton.enabled = ![c item:BattItemQuickLimits].hidden;
     c.heatButton.enabled = ![c item:BattItemHeatProtection].hidden;
     c.powerFlowView.limitEditable = c.chargeButton.enabled && [c item:BattItemLimit80].enabled;
-    _cpuSort.selected = !_sortMemory; _memorySort.selected = _sortMemory;
-    NSArray *cpuApps = [c.appStats sortedArrayUsingDescriptors:@[
-        [NSSortDescriptor sortDescriptorWithKey:@"cpu" ascending:NO],
+    uint64_t freeBytes = MIN(c.diskFreeBytes,c.diskTotalBytes);
+    _usedSpace.stringValue = c.diskTotalBytes == 0 ? @"Used —" :
+        [@"Used " stringByAppendingString:[NSByteCountFormatter stringFromByteCount:
+            c.diskTotalBytes-freeBytes countStyle:NSByteCountFormatterCountStyleFile]];
+    _freeSpace.stringValue = c.diskTotalBytes == 0 ? @"Free —" :
+        [@"Free " stringByAppendingString:[NSByteCountFormatter stringFromByteCount:
+            freeBytes countStyle:NSByteCountFormatterCountStyleFile]];
+    _storageBar.fraction = c.diskTotalBytes == 0 ? -1 : 1-freeBytes/(double)c.diskTotalBytes;
+    [_storageBar setNeedsDisplay:YES];
+    _cpuSort.selected = _sortMetric == 0; _memorySort.selected = _sortMetric == 1;
+    _diskSort.selected = _sortMetric == 2;
+    NSArray *apps = [c.appStats sortedArrayUsingDescriptors:@[
+        [NSSortDescriptor sortDescriptorWithKey:@[@"cpu",@"memory",@"disk"][_sortMetric] ascending:NO],
         [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
-    NSArray *memoryApps = [c.appStats sortedArrayUsingDescriptors:@[
-        [NSSortDescriptor sortDescriptorWithKey:@"memory" ascending:NO],
-        [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
-    NSDictionary *cpuApp = cpuApps.firstObject;
-    NSDictionary *memoryApp = memoryApps.firstObject;
-    if ([memoryApp[@"pid"] isEqual:cpuApp[@"pid"]] && memoryApps.count > 1) memoryApp = memoryApps[1];
-    [(WattAppRow *)_featured[0] update:cpuApp memory:NO];
-    [(WattAppRow *)_featured[1] update:memoryApp memory:YES];
-    _overviewEmpty.hidden = cpuApps.count > 0;
-    NSArray *apps = _sortMemory ? memoryApps : cpuApps;
     for (NSInteger i = 0; i < _rows.count; i++)
-        [(WattAppRow *)_rows[i] update:i < apps.count ? apps[i] : nil memory:_sortMemory];
+        [(WattAppRow *)_rows[i] update:i < apps.count ? apps[i] : nil metric:_sortMetric];
     _empty.hidden = apps.count > 0;
     _footer.stringValue = c.powerFlowView.chargePercent < 0 ? @"Battery unavailable" :
         [NSString stringWithFormat:@"Battery %ld%% · %@ · %.1f°C",(long)c.powerFlowView.chargePercent,
             c.powerFlowView.pluggedIn ? @"Plugged in" : @"On battery",c.powerFlowView.temperatureCelsius];
     [c.powerFlowView setNeedsDisplay:YES];
+    NSString *palette = [NSUserDefaults.standardUserDefaults stringForKey:@"WattNookPalette"] ?: @"Blue";
+    for (WattButton *button in _paletteButtons) button.selected = [button.title isEqual:palette];
+    NSArray *metrics = WattMenuMetrics();
+    for (NSInteger i=0;i<4;i++) ((NSButton *)_metricChecks[i]).state =
+        [metrics containsObject:@[@"CPU",@"RAM",@"SSD",@"Battery"][i]] ? NSControlStateValueOn : NSControlStateValueOff;
+    ((NSButton *)_metricChecks[4]).state = WattMenuBatteryIcon() ? NSControlStateValueOn : NSControlStateValueOff;
 }
 @end
 

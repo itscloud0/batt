@@ -10,8 +10,8 @@ clang -mmacosx-version-min=13.0 \
 /tmp/wattnook-dashboard-preview /tmp/wattnook-dashboard-renders
 ```
 
-The harness uses illustrative app/power values, not the daemon. It renders Battery in seven power states, System sorted by CPU and memory, and an empty System state. It checks tab changes, the keyboard charge-limit callback, rate-counter resets, invalid timing, idle traffic, and Core Animation start/stop (respecting Reduce Motion). It also reads real internal-drive counters through IOKit. It never sends daemon commands or quits another app. A test window briefly opens for the animation check.
+The harness uses illustrative app/power values, not the daemon. It renders Battery in seven power states, unplug/updating transitions, SSD used/free storage, System sorted by CPU, memory and disk, empty telemetry, settings and all four palettes. It checks tab changes, the keyboard charge-limit callback, saved menu-bar combinations (including the reachable-icon guard), coherent unplug snapshots, rate-counter resets, invalid timing, idle traffic, and Core Animation start/stop (respecting Reduce Motion). It also reads real internal-drive counters through IOKit and samples per-process diagnostics. It never sends daemon commands or quits another app. A test window briefly opens for the animation check.
 
-`main.m` is the older isolated power-canvas renderer. Link it with `native_power_flow.m`, Cocoa and QuartzCore; do not compile both harness main files into one executable.
+`main.m` is the older isolated power-canvas renderer. Link it with `native_power_flow.m`, `native_preferences.m`, Cocoa and QuartzCore; do not compile both harness main files into one executable.
 
 AppKit execution needs a normal host session. In a restrictive automation sandbox, compile there but launch the test with narrowly scoped host permission.

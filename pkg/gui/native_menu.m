@@ -116,6 +116,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [_memoryAppsMenu release];
     [_appStats release];
     [_previousProcessCPU release];
+    [_previousProcessDisk release];
     [_previousDiskCounters release];
     [_menu release];
     [_items release];
@@ -330,6 +331,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     }
 
     BattUpdateStorage(self);
+    BattUpdateBattery(self);
     _diskPercent = self.diskSpacePercent;
     [self refreshStatusImage];
     [self updateAppStats];
@@ -337,29 +339,45 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 }
 
 - (void)refreshStatusImage {
-    if (self.batteryIcon == nil) return;
-    NSImage *combined = [[[NSImage alloc] initWithSize:NSMakeSize(81, 24)] autorelease];
-    NSDictionary *attributes = @{
-        NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:8.5
-                                                              weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: NSColor.whiteColor,
-    };
-    [combined lockFocus];
-    NSArray<NSString *> *labels = @[@"CPU", @"RAM", @"SSD"];
-    NSArray<NSString *> *values = @[
-        _cpuPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _cpuPercent],
-        _memoryPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _memoryPercent],
-        _diskPercent < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%", _diskPercent],
-    ];
-    for (NSInteger i = 0; i < labels.count; i++) {
-        CGFloat y = 16 - i * 8;
-        [labels[i] drawAtPoint:NSMakePoint(1, y) withAttributes:attributes];
-        [values[i] drawAtPoint:NSMakePoint(26, y) withAttributes:attributes];
+    NSArray *metrics = WattMenuMetrics();
+    NSMutableArray *labels = [NSMutableArray array], *values = [NSMutableArray array];
+    for (NSString *metric in @[@"CPU",@"RAM",@"SSD"]) {
+        if (![metrics containsObject:metric]) continue;
+        [labels addObject:metric];
+        double value = [metric isEqual:@"CPU"] ? _cpuPercent :
+            [metric isEqual:@"RAM"] ? _memoryPercent : _diskPercent;
+        [values addObject:value < 0 ? @"—" : [NSString stringWithFormat:@"%.0f%%",value]];
     }
-    [self.batteryIcon drawInRect:NSMakeRect(54, 5, 25, 14)
-                       fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
+    BOOL percent = [metrics containsObject:@"Battery"];
+    BOOL icon = WattMenuBatteryIcon() || (labels.count == 0 && !percent);
+    CGFloat fontSize = labels.count > 1 ? 8.5 : 11;
+    NSDictionary *attributes = @{
+        NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:fontSize weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName:NSColor.whiteColor};
+    CGFloat labelWidth = 0, valueWidth = 0;
+    for (NSString *label in labels) labelWidth = MAX(labelWidth,[label sizeWithAttributes:attributes].width);
+    for (NSString *value in values) valueWidth = MAX(valueWidth,[value sizeWithAttributes:attributes].width);
+    CGFloat stackWidth = labels.count ? ceil(labelWidth+5+valueWidth)+3 : 0;
+    NSString *charge = self.powerFlowView.chargePercent < 0 ? @"—%" :
+        [NSString stringWithFormat:@"%ld%%",(long)self.powerFlowView.chargePercent];
+    NSDictionary *chargeStyle = @{NSFontAttributeName:
+        [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName:NSColor.whiteColor};
+    CGFloat percentWidth = percent ? ceil([charge sizeWithAttributes:chargeStyle].width)+4 : 0;
+    NSImage *combined = [[[NSImage alloc] initWithSize:
+        NSMakeSize(MAX(24,stackWidth+percentWidth+(icon ? 26 : 0)),24)] autorelease];
+    [combined lockFocus];
+    CGFloat height = [@"100%" sizeWithAttributes:attributes].height;
+    for (NSInteger i=0;i<labels.count;i++) {
+        CGFloat y = (24-height)/2 + ((labels.count-1)/2.0-i)*8;
+        [labels[i] drawAtPoint:NSMakePoint(1,y) withAttributes:attributes];
+        [values[i] drawAtPoint:NSMakePoint(labelWidth+6,y) withAttributes:attributes];
+    }
+    if (percent) [charge drawAtPoint:NSMakePoint(stackWidth,
+        (24-[charge sizeWithAttributes:chargeStyle].height)/2) withAttributes:chargeStyle];
+    if (icon) [self.batteryIcon drawInRect:NSMakeRect(stackWidth+percentWidth,5,25,14)
+        fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
     [combined unlockFocus];
-    combined.template = NO;
     self.statusItem.button.image = combined;
     self.statusItem.button.title = @"";
 }

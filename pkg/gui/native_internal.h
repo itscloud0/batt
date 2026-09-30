@@ -54,6 +54,7 @@
 @property(nonatomic, retain) NSMenu *memoryAppsMenu;
 @property(nonatomic, retain) NSArray<NSDictionary *> *appStats;
 @property(nonatomic, retain) NSDictionary<NSNumber *, NSNumber *> *previousProcessCPU;
+@property(nonatomic, retain) NSDictionary *previousProcessDisk;
 @property(nonatomic, retain) NSDictionary *previousDiskCounters;
 @property(nonatomic, assign) NSTimeInterval previousDiskSampleTime;
 @property(nonatomic, assign) double diskReadRate;
@@ -98,4 +99,10 @@ void BattApplyTooltips(BattMenuController *controller);
 void BattBuildPopover(BattMenuController *controller);
 void BattRefreshPopover(BattMenuController *controller, double cpu, double memory);
 void BattUpdateStorage(BattMenuController *controller);
+void BattUpdateBattery(BattMenuController *controller);
+void BattApplyBatterySnapshot(BattMenuController *controller, NSDictionary *battery);
+NSColor *WattAccentColor(void);
+NSColor *WattSurfaceColor(BOOL lighter);
+NSArray *WattMenuMetrics(void);
+BOOL WattMenuBatteryIcon(void);
 double BattCounterRate(uint64_t previous, uint64_t current, double elapsed);

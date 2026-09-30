@@ -14,6 +14,7 @@ static NSString *MemoryLabel(double bytes) {
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     NSTimeInterval elapsed = now - _previousProcessSampleTime;
     NSMutableDictionary<NSNumber *, NSNumber *> *nextCPU = [NSMutableDictionary dictionary];
+    NSMutableDictionary *nextDisk = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSNumber *, NSMutableDictionary *> *roots = [NSMutableDictionary dictionary];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
         pid_t pid = app.processIdentifier;
@@ -30,6 +31,9 @@ static NSString *MemoryLabel(double bytes) {
             @"path": path,
             @"cpu": @0,
             @"memory": @0,
+            @"diskRead": @0,
+            @"diskWrite": @0,
+            @"diskAvailable": @YES,
         } mutableCopy] autorelease];
     }
 
@@ -55,10 +59,22 @@ static NSString *MemoryLabel(double bytes) {
         NSNumber *previous = self.previousProcessCPU[key];
         double cpu = previous != nil && elapsed > 0 && totalCPU >= previous.unsignedLongLongValue
             ? (totalCPU - previous.unsignedLongLongValue) / (elapsed * 10000000.0) : 0;
+        struct rusage_info_v2 usage = {0};
+        double read = -1, write = -1;
+        if (proc_pid_rusage(pid,RUSAGE_INFO_V2,(rusage_info_t *)&usage) == 0) {
+            NSNumber *identity = @((uint64_t)bsd.pbi_start_tvsec*1000000+bsd.pbi_start_tvusec);
+            NSArray *last = self.previousProcessDisk[key];
+            nextDisk[key] = @[@(usage.ri_diskio_bytesread),@(usage.ri_diskio_byteswritten),identity];
+            if (last.count == 3 && [last[2] isEqual:identity]) {
+                read = BattCounterRate([last[0] unsignedLongLongValue],usage.ri_diskio_bytesread,elapsed);
+                write = BattCounterRate([last[1] unsignedLongLongValue],usage.ri_diskio_byteswritten,elapsed);
+            }
+        }
         processes[key] = @{
             @"parent": @(bsd.pbi_ppid),
             @"cpu": @(cpu),
             @"memory": @(task.pti_resident_size),
+            @"diskRead": @(read), @"diskWrite": @(write),
         };
     }
     for (NSNumber *pid in processes) {
@@ -85,8 +101,18 @@ static NSString *MemoryLabel(double bytes) {
         if (root == nil) continue;
         root[@"cpu"] = @([root[@"cpu"] doubleValue] + [process[@"cpu"] doubleValue]);
         root[@"memory"] = @([root[@"memory"] doubleValue] + [process[@"memory"] doubleValue]);
+        if ([process[@"diskRead"] doubleValue] < 0 || [process[@"diskWrite"] doubleValue] < 0)
+            root[@"diskAvailable"] = @NO;
+        else {
+            root[@"diskRead"] = @([root[@"diskRead"] doubleValue]+[process[@"diskRead"] doubleValue]);
+            root[@"diskWrite"] = @([root[@"diskWrite"] doubleValue]+[process[@"diskWrite"] doubleValue]);
+        }
     }
+    for (NSMutableDictionary *root in roots.allValues)
+        root[@"disk"] = [root[@"diskAvailable"] boolValue] ?
+            @([root[@"diskRead"] doubleValue]+[root[@"diskWrite"] doubleValue]) : @-1;
     self.previousProcessCPU = nextCPU;
+    self.previousProcessDisk = nextDisk;
     self.appStats = roots.allValues;
     _previousProcessSampleTime = now;
 }

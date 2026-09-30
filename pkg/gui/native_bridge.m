@@ -106,5 +106,8 @@ void batt_menu_set_live_status(BattMenuRef menu,
                                          pluggedIn:plugged_in
                                           charging:charging
                                        heatPaused:heat_paused];
+        // Finish the daemon refresh with one coherent local snapshot, rather than
+        // leaving separate power/connection requests visible during a transition.
+        BattUpdateBattery(BattController(menu));
     }
 }
