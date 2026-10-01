@@ -45,7 +45,7 @@ Power flows use a continuous rounded split/merge and a traveling highlight, acti
 - **Follow the power.** Adapter, battery and Mac have distinct paths for charging, held, battery-only and hybrid power. Labels stay outside the ribbons. A coherent local snapshot refreshes every two seconds; transitions show “updating” instead of fabricated zero-watt loads.
 - **Find the heavy app.** System shows six consumers sorted by CPU, resident memory or disk read + write rate. Attributed helpers are grouped with their apps; accessible background processes and WattNook itself are included. Normal Quit requires confirmation and is available only for eligible apps, not background processes or WattNook.
 - **Understand storage.** Battery shows used/free space and a capacity bar. System separates internal-drive read/write MB/s from storage occupancy.
-- **Keep work running, screen off.** The bundled display helper keeps the Mac awake; normal key/trackpad wake clears the session automatically.
+- **Keep work running, screen off.** The bundled display helper keeps the Mac awake. Physical keyboard/mouse/trackpad activity ends the session; automation-only display wakes are put back to sleep. Input Monitoring permission is required.
 
 ## Make it yours
 
@@ -114,7 +114,9 @@ The script builds the UI, bundles the Dark Work helper, and packages the app ico
 
 ## What the display control does
 
-It requests macOS display sleep and holds an idle-sleep assertion. It no longer forces hardware brightness to zero. Any observed display wake ends the session: the bundled watcher releases the assertion and clears the active state without requesting sleep again. This includes a key/trackpad wake and an automation-triggered wake. The normal macOS brightness is preserved. Watchers are scoped to their own session so an old watcher cannot clear a later activation. It is not a lid-closed or clamshell solution.
+It requests macOS display sleep and holds an idle-sleep assertion. It does not force hardware brightness to zero. During Screen off, the bundled helper listens for activity from supported physical HID keyboards, mice and trackpads, retaining only an activity flag, not key contents or an event history. Physical input ends the session and releases the assertion; an automation-only display wake triggers another display-sleep request, at most once every two seconds. Monitoring exists only during the session and stops when it ends. Normal macOS brightness is preserved. A brief flash from an external wake or an app holding a display assertion cannot be ruled out; this is not a guaranteed blackout or a keyboard-backlight controller.
+
+Allow WattNook/DarkWork under **System Settings → Privacy & Security → Input Monitoring** when prompted, then retry Screen off. Without permission, or if no supported physical input device can be opened, activation refuses to switch off the screen. Unknown/virtual HID transports are ignored; remapped or unusual input devices need manual compatibility testing. Watchers are scoped to their own session so an old watcher cannot clear a later activation. This is not a lid-closed or clamshell solution.
 
 The charge-limit label is non-interactive and sits below the rail on the left, so it cannot intercept dragging. Use the marker (or keyboard arrows with the rail focused) to adjust the limit; exact presets remain in Advanced controls.
 

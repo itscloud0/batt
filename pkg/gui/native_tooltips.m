@@ -12,7 +12,7 @@ void BattApplyTooltips(BattMenuController *controller) {
     SetTooltip(controller, BattItemHeatCustom,
         @"Set exact pause and resume temperatures in Celsius.");
     SetTooltip(controller, BattItemDarkWork,
-        @"Turns the display fully off while keeping the Mac awake for Codex, ChatGPT, and other work. Click again to restore the display.");
+        @"Keeps the Mac awake with the display asleep. Physical keyboard, mouse or trackpad input restores the session; automatic wakes are put back to sleep. Requires Input Monitoring permission. Click again to end the session.");
     SetTooltip(controller, BattItemUpgrade,
         @"Your batt daemon is not compatible with this client version and needs to be upgraded. This is usually caused by a new client version that requires a new daemon version. You can upgrade the batt daemon by running this command.");
     SetTooltip(controller, BattItemInstall,

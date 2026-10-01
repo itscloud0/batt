@@ -548,12 +548,16 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     NSTask *task = [[[NSTask alloc] init] autorelease];
     task.executableURL = [NSURL fileURLWithPath:tool];
     task.arguments = @[active ? @"--restore" : @"--activate"];
+    NSPipe *errors = [NSPipe pipe];
+    task.standardError = errors;
     @try {
         [task launch];
         [task waitUntilExit];
         if (task.terminationStatus != 0) {
+            NSData *data = [errors.fileHandleForReading readDataToEndOfFile];
+            NSString *detail = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
             @throw [NSException exceptionWithName:@"DarkWorkError"
-                                           reason:@"Display control failed; check the bundled helper."
+                                           reason:detail.length ? detail : @"Display control failed; check the bundled helper."
                                          userInfo:nil];
         }
         [self item:BattItemDarkWork].title = [self isDarkWorkActive]
