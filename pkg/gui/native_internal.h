@@ -107,6 +107,7 @@ NSString *WattCompactBytes(double bytes, BOOL binary);
 void BattUpdateStorage(BattMenuController *controller);
 void BattUpdateBattery(BattMenuController *controller);
 void BattApplyBatterySnapshot(BattMenuController *controller, NSDictionary *battery);
+BOOL WattGlassTheme(void);
 NSColor *WattAccentColor(void);
 NSColor *WattSurfaceColor(BOOL lighter);
 NSArray *WattMenuMetrics(void);

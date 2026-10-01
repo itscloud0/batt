@@ -18,6 +18,7 @@ static NSTextField *Label(NSView *parent, NSRect frame, NSString *text,
 @interface WattButton : NSButton
 @property(nonatomic, assign) BOOL selected;
 @property(nonatomic, assign) BOOL plain;
+@property(nonatomic, assign) BOOL onGlass; // sits on an NSGlassEffectView in the Glass theme
 @end
 @implementation WattButton {
     NSTrackingArea *_tracking;
@@ -42,10 +43,14 @@ static NSTextField *Label(NSView *parent, NSRect frame, NSString *text,
 - (void)drawRect:(NSRect)rect {
     (void)rect;
     NSRect surface = NSInsetRect(self.bounds, 0.5, 0.5);
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:surface xRadius:8 yRadius:8];
-    if (!_plain || _hover || _selected) {
-        NSColor *color = _selected ? [WattAccentColor() blendedColorWithFraction:0.40
-            ofColor:NSColor.blackColor] :
+    BOOL glass = WattGlassTheme();
+    // Glass uses capsules, concentric with the glass shapes behind the controls.
+    CGFloat radius = glass ? NSHeight(surface) / 2 : 8;
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:surface xRadius:radius yRadius:radius];
+    BOOL bare = glass && _onGlass && !_selected && !_hover && !self.highlighted;
+    if ((!_plain || _hover || _selected) && !bare) {
+        NSColor *color = _selected ? (glass ? [WattAccentColor() colorWithAlphaComponent:0.85] :
+            [WattAccentColor() blendedColorWithFraction:0.40 ofColor:NSColor.blackColor]) :
             [NSColor.whiteColor colorWithAlphaComponent:self.highlighted ? 0.19 :
                 (_hover ? 0.14 : 0.075)];
         [color setFill]; [path fill];
@@ -220,7 +225,7 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
 @implementation WattDashboard {
     NSView *_batteryPage, *_systemPage, *_settingsPage;
     WattButton *_batteryTab, *_systemTab, *_cpuSort, *_memorySort, *_diskSort;
-    NSMutableArray *_summary, *_details, *_detailCaptions, *_rows, *_paletteButtons, *_metricChecks;
+    NSMutableArray *_summary, *_details, *_detailCaptions, *_rows, *_paletteButtons, *_metricChecks, *_glassViews;
     NSTextField *_processCount, *_swap, *_availableSpace, *_footer, *_empty, *_usedSpace, *_freeSpace, *_limitLabel;
     WattStorageBar *_storageBar;
     BOOL _system, _settings;
@@ -233,20 +238,52 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
         _detailCaptions = [[NSMutableArray alloc] init];
         _rows = [[NSMutableArray alloc] init];
         _paletteButtons = [[NSMutableArray alloc] init]; _metricChecks = [[NSMutableArray alloc] init];
+        _glassViews = [[NSMutableArray alloc] init];
     }
     return self;
 }
 - (void)dealloc {
     [_summary release]; [_details release]; [_rows release];
     [_detailCaptions release];
-    [_paletteButtons release]; [_metricChecks release];
+    [_paletteButtons release]; [_metricChecks release]; [_glassViews release];
     [super dealloc];
 }
 - (void)drawRect:(NSRect)rect {
     (void)rect;
+    // Glass: no backdrop, so the popover's own Liquid Glass stays visible.
+    if (WattGlassTheme()) return;
     NSGradient *surface = [[[NSGradient alloc] initWithStartingColor:WattSurfaceColor(YES)
         endingColor:WattSurfaceColor(NO)] autorelease];
     [surface drawInRect:self.bounds angle:90];
+}
+// Puts system Liquid Glass shapes behind the given controls, grouped in one
+// container as Apple recommends. They only show in the Glass theme.
+- (void)glass:(NSArray *)rects behind:(NSArray *)buttons in:(NSView *)parent {
+    if (@available(macOS 26.0, *)) {
+        NSRect bounds = NSZeroRect;
+        for (NSValue *rect in rects) bounds = NSUnionRect(bounds, rect.rectValue);
+        NSGlassEffectContainerView *container =
+            [[[NSGlassEffectContainerView alloc] initWithFrame:bounds] autorelease];
+        NSView *content = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(bounds), NSHeight(bounds))] autorelease];
+        container.contentView = content;
+        for (NSValue *value in rects) {
+            NSRect rect = NSOffsetRect(value.rectValue, -NSMinX(bounds), -NSMinY(bounds));
+            NSGlassEffectView *glass = [[[NSGlassEffectView alloc] initWithFrame:rect] autorelease];
+            glass.cornerRadius = NSHeight(rect) / 2;
+            [content addSubview:glass];
+        }
+        [parent addSubview:container positioned:NSWindowBelow relativeTo:buttons.firstObject];
+        [_glassViews addObject:container];
+        for (WattButton *button in buttons) button.onGlass = YES;
+    }
+}
+static void Redisplay(NSView *view) {
+    view.needsDisplay = YES;
+    for (NSView *subview in view.subviews) Redisplay(subview);
+}
+- (void)applyTheme {
+    for (NSView *view in _glassViews) view.hidden = !WattGlassTheme();
+    Redisplay(self);
 }
 - (void)line:(NSView *)parent y:(CGFloat)y {
     NSBox *line = [[[NSBox alloc] initWithFrame:NSMakeRect(18, y, 324, 1)] autorelease];
@@ -260,6 +297,8 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
         self, @selector(battery:));
     _systemTab = Button(self, NSMakeRect(184, 407, 156, 29), @"System", @"chart.bar.fill",
         self, @selector(system:)); _batteryTab.selected = YES;
+    [self glass:@[[NSValue valueWithRect:NSMakeRect(16, 403, 328, 37)]]
+        behind:@[_batteryTab, _systemTab] in:self];
     _batteryPage = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 408)] autorelease];
     _systemPage = [[[NSView alloc] initWithFrame:_batteryPage.frame] autorelease];
     [self addSubview:_batteryPage]; [self addSubview:_systemPage]; _systemPage.hidden = YES;
@@ -279,6 +318,8 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
     c.darkButton = Button(_batteryPage, NSMakeRect(184, 151, 156, 31),
         @"Screen off", @"moon.fill", c, @selector(toggleDarkWorkFromPopover:));
     c.heatButton.font = c.darkButton.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+    [self glass:@[[NSValue valueWithRect:c.heatButton.frame], [NSValue valueWithRect:c.darkButton.frame]]
+        behind:@[c.heatButton, c.darkButton] in:_batteryPage];
     [self line:_batteryPage y:141];
     WattButton *system = Button(_batteryPage, NSMakeRect(17, 118, 75, 22),
         @"System ›", @"", self, @selector(system:)); system.plain = YES;
@@ -330,11 +371,12 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
     _footer.alignment = NSTextAlignmentCenter;
     Label(_settingsPage,NSMakeRect(24,367,312,24),@"Appearance",16,YES);
     Label(_settingsPage,NSMakeRect(24,341,312,18),@"Palette",12,NO);
-    NSArray *palettes = @[@"Blue",@"Mint",@"Violet",@"Amber"];
+    NSArray *palettes = @[@"Blue",@"Mint",@"Violet",@"Amber",@"Glass"];
     for (NSInteger i=0;i<palettes.count;i++) {
-        WattButton *palette = Button(_settingsPage,NSMakeRect(24+i*79,302,73,30),
+        WattButton *palette = Button(_settingsPage,NSMakeRect(24+i*63,302,57,30),
             palettes[i],@"",self,@selector(palette:));
         palette.tag = i; [_paletteButtons addObject:palette];
+        if (@available(macOS 26.0, *)) {} else palette.hidden = [palettes[i] isEqual:@"Glass"];
     }
     [self line:_settingsPage y:281];
     Label(_settingsPage,NSMakeRect(24,245,312,24),@"Menu bar",16,YES);
@@ -348,13 +390,15 @@ NSString *WattCompactBytes(double bytes, BOOL binary) {
     Label(_settingsPage,NSMakeRect(24,51,312,27),@"Choose any combination. Changes are saved.",10,NO);
     Button(_settingsPage,NSMakeRect(24,13,312,30),@"Advanced controls…",@"slider.horizontal.3",
         c,@selector(showMoreMenu:));
+    [self applyTheme];
 }
 - (void)battery:(id)sender { (void)sender; _system = NO; _settings = NO; [self selectPage]; }
 - (void)system:(id)sender { (void)sender; _system = YES; _settings = NO; [self selectPage]; }
 - (void)settings:(id)sender { (void)sender; _settings = !_settings; [self selectPage]; }
 - (void)palette:(NSButton *)sender {
-    [NSUserDefaults.standardUserDefaults setObject:@[@"Blue",@"Mint",@"Violet",@"Amber"][sender.tag]
+    [NSUserDefaults.standardUserDefaults setObject:@[@"Blue",@"Mint",@"Violet",@"Amber",@"Glass"][sender.tag]
         forKey:@"WattNookPalette"];
+    [self applyTheme];
     [self refreshCPU:_cpu memory:_memory]; [self setNeedsDisplay:YES];
     for (NSView *view in self.subviews) [view setNeedsDisplay:YES];
 }
