@@ -81,14 +81,8 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
                                                  selector:@selector(timerTick:)
                                                  userInfo:nil
                                                   repeats:YES] retain];
-        _statsTimer = [[NSTimer scheduledTimerWithTimeInterval:2.0
-                                                        target:self
-                                                      selector:@selector(updateSystemStats:)
-                                                      userInfo:nil
-                                                       repeats:YES] retain];
-        _statsTimer.tolerance = 0.25;
         _timer.tolerance = 1.0;
-        [self updateSystemStats:nil];
+        [self applyMonitoringPreferences];
     }
     return self;
 }
@@ -107,6 +101,11 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [_chargeButton release];
     [_heatButton release];
     [_darkButton release];
+    [_keepAwakeStatus release];
+    [_lidGuard release];
+    [_keepAwakeError release];
+    [_lidGuardError release];
+    [_metricHistory release];
     [_statsButton release];
     [_memoryButton release];
     [_diskButton release];
@@ -161,8 +160,8 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
             [self item:BattItemHeatRelaxed].state = identifier == BattItemHeatRelaxed
                 ? NSControlStateValueOn : NSControlStateValueOff;
             break;
-        case BattItemDarkWork:
-            [self toggleDarkWork];
+        case BattItemKeepAwake:
+            [self toggleKeepAwake];
             return;
         case BattItemHeatCustom:
             [self setCustomHeatProtection];
@@ -209,7 +208,7 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         return;
     }
     battMenuWillOpen(_handle);
-    [self updateAppStats];
+    if (self.systemPageVisible) [self updateAppStats];
     [self refreshPopoverControls];
     [NSApp activateIgnoringOtherApps:YES];
     [self.popover showRelativeToRect:self.statusItem.button.bounds
@@ -225,6 +224,8 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 - (void)popoverDidClose:(NSNotification *)notification {
     (void)notification;
     self.powerFlowView.flowAnimationEnabled = NO;
+    self.previousProcessCPU = nil; self.previousProcessDisk = nil;
+    _previousProcessSampleTime = 0;
 }
 
 - (void)showMenu:(NSMenu *)menu fromButton:(NSButton *)button {
@@ -264,9 +265,30 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [self showMenu:self.menu fromButton:sender];
 }
 
-- (void)toggleDarkWorkFromPopover:(NSButton *)sender {
+- (void)showKeepAwakeDiagnostics:(id)sender {
     (void)sender;
-    [self toggleDarkWork];
+    [self isKeepAwakeActive];
+    NSString *report = WattAwakeReport(self);
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    alert.messageText = @"Keep Awake diagnostics";
+    alert.informativeText = @"Last 64 local events: sleep-setting changes and display-guard activity. No network or input data.";
+    NSScrollView *scroll = [[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,480,280)] autorelease];
+    scroll.hasVerticalScroller = YES;
+    NSTextView *text = [[[NSTextView alloc] initWithFrame:scroll.bounds] autorelease];
+    text.editable = NO; text.selectable = YES; text.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    text.string = report; text.verticallyResizable = YES;
+    text.textContainer.widthTracksTextView = YES;
+    scroll.documentView = text; alert.accessoryView = scroll;
+    [alert addButtonWithTitle:@"Close"]; [alert addButtonWithTitle:@"Copy report"];
+    if ([alert runModal] == NSAlertSecondButtonReturn) {
+        [NSPasteboard.generalPasteboard clearContents];
+        [NSPasteboard.generalPasteboard setString:report forType:NSPasteboardTypeString];
+    }
+}
+
+- (void)toggleKeepAwakeFromPopover:(NSButton *)sender {
+    (void)sender;
+    [self toggleKeepAwake];
     [self refreshPopoverControls];
 }
 
@@ -301,13 +323,44 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
 - (void)timerTick:(NSTimer *)timer {
     (void)timer;
     battMenuTimerFired(_handle);
+    if (!WattMonitoringEnabled()) BattUpdateBattery(self);
+    [self isKeepAwakeActive];
+}
+
+- (void)applyMonitoringPreferences {
+    if (WattMonitoringEnabled()) {
+        if (!_statsTimer) {
+            self.statsTimer = [NSTimer scheduledTimerWithTimeInterval:2 target:self
+                selector:@selector(updateSystemStats:) userInfo:nil repeats:YES];
+            self.statsTimer.tolerance = 0.25;
+        }
+        if (WattHistoryEnabled() && !self.metricHistory) self.metricHistory = [[[WattMetricHistory alloc] init] autorelease];
+        if (!WattHistoryEnabled()) self.metricHistory = nil;
+        [self updateSystemStats:nil];
+    } else {
+        [self.statsTimer invalidate]; self.statsTimer = nil;
+        self.metricHistory = nil; self.appStats = nil;
+        self.cpuFeaturedApp = nil; self.memoryFeaturedApp = nil;
+        [self.cpuAppsMenu removeAllItems]; [self.memoryAppsMenu removeAllItems];
+        self.previousProcessCPU = nil; self.previousProcessDisk = nil;
+        self.previousDiskCounters = nil; self.previousDiskSampleTime = 0;
+        _hasCPUSample = NO; _previousProcessSampleTime = 0;
+        _cpuPercent = _memoryPercent = _diskPercent = -1;
+        self.diskReadRate = self.diskWriteRate = self.diskSpacePercent = -1;
+        self.diskTotalBytes = self.diskFreeBytes = 0;
+        self.swapUsedBytes = -1; self.memoryPressure = 0; self.memoryPressureSince = 0;
+    }
+    [self refreshStatusImage]; [self refreshPopoverControls];
 }
 
 - (void)updateSystemStats:(NSTimer *)timer {
     (void)timer;
+    if (!WattMonitoringEnabled()) return;
+    _cpuPercent = _memoryPercent = -1;
+    host_t host = mach_host_self();
     host_cpu_load_info_data_t cpu;
     mach_msg_type_number_t cpuCount = HOST_CPU_LOAD_INFO_COUNT;
-    if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
+    if (host_statistics(host, HOST_CPU_LOAD_INFO,
                         (host_info_t)&cpu, &cpuCount) == KERN_SUCCESS) {
         uint64_t totalDelta = 0;
         uint64_t busyDelta = 0;
@@ -321,11 +374,11 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         if (_hasCPUSample && totalDelta > 0)
             _cpuPercent = 100.0 * busyDelta / totalDelta;
         _hasCPUSample = YES;
-    }
+    } else _hasCPUSample = NO;
 
     vm_statistics64_data_t memory;
     mach_msg_type_number_t memoryCount = HOST_VM_INFO64_COUNT;
-    if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+    if (host_statistics64(host, HOST_VM_INFO64,
                           (host_info64_t)&memory, &memoryCount) == KERN_SUCCESS) {
         uint64_t total = [NSProcessInfo processInfo].physicalMemory;
         uint64_t available = ((uint64_t)memory.free_count +
@@ -334,6 +387,11 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         if (total > 0)
             _memoryPercent = 100.0 * (1.0 - MIN(available, total) / (double)total);
     }
+    mach_port_deallocate(mach_task_self(),host);
+    NSInteger pressure = WattMemoryPressureLevel();
+    if (pressure != self.memoryPressure || !self.memoryPressureSince)
+        self.memoryPressureSince = NSDate.timeIntervalSinceReferenceDate;
+    self.memoryPressure = pressure;
 
     struct xsw_usage swap = {0};
     size_t swapSize = sizeof(swap);
@@ -342,9 +400,17 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     BattUpdateStorage(self);
     BattUpdateBattery(self);
     _diskPercent = self.diskSpacePercent;
+    if (self.metricHistory) {
+        double watts = self.powerFlowView.systemWatts;
+        BOOL inconsistent = self.powerFlowView.batteryWatts > 0.25 &&
+            (self.powerFlowView.adapterWatts < self.powerFlowView.batteryWatts+0.5 || watts < 0.5);
+        if (!self.powerFlowView.hasTelemetry || inconsistent || watts <= 0.05) watts = NAN;
+        double disk = self.diskReadRate < 0 || self.diskWriteRate < 0 ? NAN : (self.diskReadRate+self.diskWriteRate)/1000000;
+        [self.metricHistory append:(WattMetricSample){NSDate.timeIntervalSinceReferenceDate,_cpuPercent,_memoryPercent,watts,disk}];
+    }
     [self refreshStatusImage];
-    // Keep system/menu metrics responsive; scan processes less often while closed.
-    if (self.popover.isShown || NSProcessInfo.processInfo.systemUptime-_previousProcessSampleTime >= 6)
+    // Per-process scans are only useful while the app list is visible.
+    if (self.popover.isShown && self.systemPageVisible)
         [self updateAppStats];
     if (self.popover.isShown) [self refreshPopoverControls];
 }
@@ -525,47 +591,103 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     [self.powerFlowView setNeedsDisplay:YES];
 }
 
-- (NSString *)darkWorkToolPath {
-    return [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"DarkWork"];
+- (NSString *)keepAwakeToolPath {
+    return [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"KeepAwake"];
 }
 
-- (BOOL)isDarkWorkActive {
-    NSString *state = [NSHomeDirectory() stringByAppendingPathComponent:
-        @"Library/Application Support/DarkWork/state.json"];
-    return [[NSFileManager defaultManager] fileExistsAtPath:state];
+- (BOOL)isKeepAwakeActive {
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (self.keepAwakeStatusTime == 0 || now - self.keepAwakeStatusTime >= 10) {
+        NSNumber *previous = self.keepAwakeStatus;
+        [previous retain];
+        self.keepAwakeStatusTime = now;
+        self.keepAwakeStatus = nil;
+        NSString *tool = [self keepAwakeToolPath];
+        if (tool != nil) {
+            NSTask *task = [[[NSTask alloc] init] autorelease];
+            NSPipe *output = [NSPipe pipe];
+            task.executableURL = [NSURL fileURLWithPath:tool];
+            task.arguments = @[@"--status"];
+            task.standardOutput = output;
+            task.standardError = [NSFileHandle fileHandleWithNullDevice];
+            @try {
+                [task launch];
+                NSData *data = [output.fileHandleForReading readDataToEndOfFile];
+                [task waitUntilExit];
+                NSString *value = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+                value = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if (task.terminationStatus == 0 && ([value isEqualToString:@"on"] || [value isEqualToString:@"off"]))
+                    self.keepAwakeStatus = @([value isEqualToString:@"on"]);
+            } @catch (NSException *exception) { (void)exception; }
+        }
+        self.keepAwakeError = self.keepAwakeStatus ? nil : @"Cannot read sleep setting; last display guard state retained";
+        if (tool && ![previous isEqual:self.keepAwakeStatus] && (previous || self.keepAwakeStatus))
+            WattRecordAwakeEvent(self.keepAwakeError ?: (self.keepAwakeStatus.boolValue ? @"Sleep prevention confirmed on" : @"Sleep prevention confirmed off"));
+        [previous release];
+    }
+    BOOL enabled = self.keepAwakeStatus.boolValue;
+    // Preview/test executables have no bundled helper and must not touch hardware.
+    if ([self keepAwakeToolPath] != nil)
+        WattSyncLidGuard(self,WattKeepLidGuard(self.keepAwakeStatus,self.lidGuard != nil ||
+            [NSUserDefaults.standardUserDefaults objectForKey:@"WattNookClosedLidBrightness"] != nil));
+    return enabled;
 }
 
-- (void)toggleDarkWork {
-    BOOL active = [self isDarkWorkActive];
-    NSString *tool = [self darkWorkToolPath];
+- (void)toggleKeepAwake {
+    if (self.keepAwakeChanging) return;
+    self.keepAwakeStatusTime = 0;
+    BOOL active = [self isKeepAwakeActive];
+    NSString *tool = [self keepAwakeToolPath];
     if (![[NSFileManager defaultManager] isExecutableFileAtPath:tool]) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-        alert.messageText = @"Dark Work helper is missing";
-        alert.informativeText = @"Reinstall WattNook to restore its bundled screen-off helper.";
+        alert.messageText = @"Keep Awake helper is missing";
+        alert.informativeText = @"Reinstall WattNook to restore its bundled Keep Awake helper.";
         [alert runModal];
         return;
     }
+    if (!self.keepAwakeStatus) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        alert.messageText = @"Keep Awake status is unavailable";
+        alert.informativeText = @"The current sleep setting could not be read. Retry shortly. Your last display guard state is retained.";
+        [alert runModal]; return;
+    }
     NSTask *task = [[[NSTask alloc] init] autorelease];
     task.executableURL = [NSURL fileURLWithPath:tool];
-    task.arguments = @[active ? @"--restore" : @"--activate"];
+    if (!active && ![NSUserDefaults.standardUserDefaults boolForKey:@"WattNookKeepAwakeWarningAccepted"]) {
+        NSAlert *confirm = [[[NSAlert alloc] init] autorelease];
+        confirm.messageText = @"Keep working with the lid closed?";
+        confirm.informativeText = @"This disables sleep for the entire Mac, including after WattNook quits. Turn Keep Awake off before carrying your Mac or putting it in a bag. Keep it ventilated, preferably on power. Keep WattNook running for closed-lid brightness handling. Administrator permission is needed unless the narrow sleep-toggle rule is installed. Do not manage this setting in Vorssaint at the same time.";
+        [confirm addButtonWithTitle:@"Enable Keep Awake"];
+        [confirm addButtonWithTitle:@"Cancel"];
+        if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"WattNookKeepAwakeWarningAccepted"];
+    }
+    task.arguments = @[active ? @"--disable" : @"--enable"];
     NSPipe *errors = [NSPipe pipe];
     task.standardError = errors;
     @try {
-        [task launch];
-        [task waitUntilExit];
-        if (task.terminationStatus != 0) {
+        self.keepAwakeChanging = YES;
+        [self refreshPopoverControls];
+        task.terminationHandler = ^(NSTask *finished) {
             NSData *data = [errors.fileHandleForReading readDataToEndOfFile];
-            NSString *detail = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
-            @throw [NSException exceptionWithName:@"DarkWorkError"
-                                           reason:detail.length ? detail : @"Display control failed; check the bundled helper."
-                                         userInfo:nil];
-        }
-        [self item:BattItemDarkWork].title = [self isDarkWorkActive]
-            ? @"Dark Work: restore display"
-            : @"Dark Work: screen off, Mac awake";
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.keepAwakeChanging = NO;
+                self.keepAwakeStatusTime = 0;
+                [self refreshPopoverControls];
+                if (finished.terminationStatus != 0) {
+                    NSString *detail = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+                    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+                    alert.messageText = @"Could not change Keep Awake";
+                    alert.informativeText = detail.length ? detail : @"macOS did not confirm the change.";
+                    [alert runModal];
+                }
+            });
+        };
+        [task launch];
     } @catch (NSException *exception) {
+        self.keepAwakeChanging = NO;
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-        alert.messageText = @"Could not toggle Dark Work";
+        alert.messageText = @"Could not change Keep Awake";
         alert.informativeText = exception.reason ?: @"Unknown error";
         [alert runModal];
     }
@@ -723,7 +845,7 @@ void BattBuildMenu(BattMenuController *controller, NSString *version) {
     [heat addItem:ActionItem(controller, @"Relaxed: pause 35°C, resume 32°C", @"", BattItemHeatRelaxed)];
     [heat addItem:[NSMenuItem separatorItem]];
     [heat addItem:ActionItem(controller, @"Custom…", @"", BattItemHeatCustom)];
-    [root addItem:ActionItem(controller, @"Dark Work: screen off, Mac awake", @"", BattItemDarkWork)];
+    [root addItem:ActionItem(controller, @"Keep Awake: closed-lid work", @"", BattItemKeepAwake)];
 
     [root addItem:[NSMenuItem separatorItem]];
     NSMenu *diagnostics = [[[NSMenu alloc] initWithTitle:@"Diagnostics"] autorelease];
@@ -755,6 +877,11 @@ void BattBuildMenu(BattMenuController *controller, NSString *version) {
     controller.memoryAppsMenu = [[[NSMenu alloc] initWithTitle:@"Top RAM Apps"] autorelease];
     memoryApps.submenu = controller.memoryAppsMenu;
     [diagnostics addItem:memoryApps];
+    NSMenuItem *awakeDiagnostics = [[[NSMenuItem alloc] initWithTitle:@"Keep Awake diagnostics…"
+        action:@selector(showKeepAwakeDiagnostics:) keyEquivalent:@""] autorelease];
+    awakeDiagnostics.target = controller;
+    [diagnostics addItem:[NSMenuItem separatorItem]];
+    [diagnostics addItem:awakeDiagnostics];
 
     [root addItem:ActionItem(controller, @"Upgrade Daemon...", @"u", BattItemUpgrade)];
     [root addItem:ActionItem(controller, @"Install Daemon...", @"i", BattItemInstall)];

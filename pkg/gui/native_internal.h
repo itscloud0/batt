@@ -6,6 +6,29 @@
 double BattProcessCPUPercent(uint64_t previous, uint64_t current, double elapsed,
                              uint32_t numer, uint32_t denom);
 NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
+NSDictionary *WattLidBrightnessPlan(BOOL enabled, BOOL closed, NSNumber *current, NSNumber *saved);
+BOOL WattKeepLidGuard(NSNumber *status, BOOL currentlyGuarded);
+BOOL WattMonitoringEnabled(void);
+BOOL WattHistoryEnabled(void);
+NSInteger WattMemoryPressureLevel(void);
+NSString *WattMemoryPressureLabel(NSInteger level);
+
+typedef struct {
+    NSTimeInterval time;
+    double cpu, memory, watts, disk;
+} WattMetricSample;
+enum { WattHistoryCapacity = 90 };
+@interface WattMetricHistory : NSObject {
+    WattMetricSample _samples[WattHistoryCapacity];
+    NSUInteger _count, _next;
+}
+@property(nonatomic, readonly) NSUInteger count;
+- (void)append:(WattMetricSample)sample;
+- (WattMetricSample)sampleAtIndex:(NSUInteger)index;
+@end
+@interface WattHistoryView : NSView
+@property(nonatomic, retain) WattMetricHistory *history;
+@end
 
 @interface BattPowerFlowView : NSView
 @property(nonatomic, assign) double adapterWatts;
@@ -45,6 +68,12 @@ NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
 @property(nonatomic, retain) NSButton *chargeButton;
 @property(nonatomic, retain) NSButton *heatButton;
 @property(nonatomic, retain) NSButton *darkButton;
+@property(nonatomic, assign) BOOL keepAwakeChanging;
+@property(nonatomic, retain) NSNumber *keepAwakeStatus;
+@property(nonatomic, copy) NSString *keepAwakeError;
+@property(nonatomic, copy) NSString *lidGuardError;
+@property(nonatomic, retain) NSObject *lidGuard;
+@property(nonatomic, assign) NSTimeInterval keepAwakeStatusTime;
 @property(nonatomic, retain) NSButton *statsButton;
 @property(nonatomic, retain) NSButton *memoryButton;
 @property(nonatomic, retain) NSButton *diskButton;
@@ -67,6 +96,10 @@ NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
 @property(nonatomic, assign) uint64_t diskTotalBytes;
 @property(nonatomic, assign) uint64_t diskFreeBytes;
 @property(nonatomic, assign) double swapUsedBytes;
+@property(nonatomic, assign) NSInteger memoryPressure;
+@property(nonatomic, assign) NSTimeInterval memoryPressureSince;
+@property(nonatomic, retain) WattMetricHistory *metricHistory;
+@property(nonatomic, assign) BOOL systemPageVisible;
 
 - (instancetype)initWithHandle:(uintptr_t)handle version:(NSString *)version;
 - (NSMenuItem *)item:(BattMenuItem)item;
@@ -88,16 +121,21 @@ NSString *WattCPUUsageLabel(double corePercent, NSUInteger processorCount);
                     charging:(BOOL)charging
                  heatPaused:(BOOL)heatPaused;
 - (void)updateSystemStats:(NSTimer *)timer;
+- (void)applyMonitoringPreferences;
 - (void)refreshStatusImage;
 - (void)updateAppStats;
 - (void)updateDiagnosticMenus;
 - (void)quitDiagnosedApp:(NSMenuItem *)sender;
-- (void)toggleDarkWork;
+- (void)toggleKeepAwake;
 - (void)setCustomHeatProtection;
 - (void)refreshPopoverControls;
 - (void)commitLimitFromRail:(BattPowerFlowView *)sender;
-- (BOOL)isDarkWorkActive;
+- (BOOL)isKeepAwakeActive;
 @end
+
+void WattSyncLidGuard(BattMenuController *controller, BOOL enabled);
+void WattRecordAwakeEvent(NSString *event);
+NSString *WattAwakeReport(BattMenuController *controller);
 
 void BattBuildMenu(BattMenuController *controller, NSString *version);
 void BattApplyTooltips(BattMenuController *controller);
@@ -107,6 +145,8 @@ NSString *WattCompactBytes(double bytes, BOOL binary);
 void BattUpdateStorage(BattMenuController *controller);
 void BattUpdateBattery(BattMenuController *controller);
 void BattApplyBatterySnapshot(BattMenuController *controller, NSDictionary *battery);
+BOOL WattGlassAvailable(void);
+BOOL WattGlassTheme(void);
 NSColor *WattAccentColor(void);
 NSColor *WattSurfaceColor(BOOL lighter);
 NSArray *WattMenuMetrics(void);

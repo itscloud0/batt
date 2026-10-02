@@ -11,8 +11,8 @@ void BattApplyTooltips(BattMenuController *controller) {
         @"Stops battery charging above the selected battery temperature. Your Mac keeps running from the power adapter.");
     SetTooltip(controller, BattItemHeatCustom,
         @"Set exact pause and resume temperatures in Celsius.");
-    SetTooltip(controller, BattItemDarkWork,
-        @"Keeps the Mac awake with the display asleep. Physical keyboard, mouse or trackpad input restores the session; automatic wakes are put back to sleep. Requires Input Monitoring permission. Click again to end the session.");
+    SetTooltip(controller, BattItemKeepAwake,
+        @"System-wide sleep toggle for closed-lid work. A narrow sleep-toggle permission avoids repeated passwords. While WattNook runs, the built-in display dims on lid close and restores on open. Sleep prevention remains active after quitting; turn off before transport. No input monitoring.");
     SetTooltip(controller, BattItemUpgrade,
         @"Your batt daemon is not compatible with this client version and needs to be upgraded. This is usually caused by a new client version that requires a new daemon version. You can upgrade the batt daemon by running this command.");
     SetTooltip(controller, BattItemInstall,

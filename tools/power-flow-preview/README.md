@@ -26,6 +26,17 @@ Context-row checks assert column alignment (processes under CPU, swap under Memo
 
 Set `WATTNOOK_CHECKS_ONLY=1` to run assertions without generating preview images. Label checks cycle every saved unit mode and assert arrow-free captions with the Change units tooltip preserved.
 
-The harness also checks rail hit-testing beneath the static Limit label at 20% and 80%, the battery-percentage gap and the SSD used setting. For display-wake policy checks without sleeping the real display, compile `tools/dark-work/DarkWork.swift` with `swiftc -Onone` and run the resulting executable with `--self-test`. Assertions must be enabled for this policy check; do not use `-O`. Actual screen wake still requires a manual hardware test.
+Monitoring checks cover the 90-sample history bound, ten-second throttling, invalid readings and clock rollback; pressure labels; history navigation; and off/on/off lifecycle (timer, history and process counters released). The harness draws the chart without generating artifacts in checks-only mode. Keep Awake tests also assert that unknown status preserves an active display guard and that the local event journal evicts older entries after 64 events. Test executables have no bundled helper and cannot activate the real lid guard. Sleep/wake delivery, overnight Remote access and sustained energy/memory use still require host acceptance.
 
-Dark Work checks cover automation-only wakes retaining the session, physical input ending it, no initial activation-click restoration, key release/zero movement/vendor telemetry rejection, and accepted USB/Bluetooth/built-in FIFO activity. `--input-status` checks permission without requesting it or opening devices. With Input Monitoring permission, `--monitor-probe` opens the physical monitor for ten seconds, then releases it, without arming activity detection or changing the display. Check resource usage during that bounded probe. Hardware wake, repeated ChatGPT wakes, permission revocation and unusual/remapped devices still require manual acceptance.
+For a narrow visual review, `WATTNOOK_CAPTURE_PREFIX=monitoring-` (without checks-only) writes just settings and illustrative four-series history renders. Pressure/History controls also have non-overlap assertions. No full desktop screenshots are captured.
+
+The harness also checks rail hit-testing beneath the static Limit label at 20% and 80%, the battery-percentage gap and the SSD used setting. Screen off / Dark Work has been removed. Keep Awake policy checks (without changing sleep settings):
+
+```sh
+swiftc -parse-as-library -Onone tools/keep-awake/Policy.swift tools/keep-awake/Tests.swift -o /tmp/wattnook-keep-awake-tests
+/tmp/wattnook-keep-awake-tests
+clang -framework Cocoa -framework IOKit tools/keep-awake/LidTests.m pkg/gui/native_lid.m -o /tmp/wattnook-lid-tests
+/tmp/wattnook-lid-tests
+```
+
+These check valid, missing, malformed and duplicate SleepDisabled telemetry, the fixed non-interactive sudo command boundary, saving/restoring brightness, duplicate close handling, unavailable/invalid readings and preserving already-restored brightness. They do not write hardware brightness. The packaged helper's `--status` reads macOS without changing settings or asking for permission. Administrator cancellation, actual closed-lid brightness/CLI continuation and remote desktop availability require manual acceptance; never infer those from policy tests.

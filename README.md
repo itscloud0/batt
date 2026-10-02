@@ -44,18 +44,21 @@ Power flows use a continuous rounded split/merge and a traveling highlight, acti
 - **Control charging.** Drag the limit marker from 20–95%, or choose an exact value. Thermal protection has separate pause and resume thresholds.
 - **Follow the power.** Adapter, battery and Mac have distinct paths for charging, held, battery-only and hybrid power. Labels stay outside the ribbons. A coherent local snapshot refreshes every two seconds; transitions show “updating” instead of fabricated zero-watt loads.
 - **Find the heavy app.** System shows six consumers sorted by CPU, resident memory or disk read + write rate. Attributed helpers are grouped with their apps; accessible background processes and WattNook itself are included. Normal Quit requires confirmation and is available only for eligible apps, not background processes or WattNook.
+- **See pressure and recent trends.** System shows macOS memory pressure separately from RAM occupancy. Optional 15-minute history tracks CPU, memory, estimated Mac power and disk throughput, entirely in memory.
 - **Understand storage.** Battery shows used/free space and a capacity bar. System separates internal-drive read/write MB/s from storage occupancy.
-- **Keep work running, screen off.** The bundled display helper keeps the Mac awake. Physical keyboard/mouse/trackpad activity ends the session; automation-only display wakes are put back to sleep. Input Monitoring permission is required.
+- **Keep work running with the lid closed.** Keep Awake toggles macOS system sleep. While WattNook runs, its lid guard dims the built-in display on closure and restores brightness on opening. This is not guaranteed electrical panel shutdown. No input monitoring or repeated screen-sleep requests.
 
 ## Make it yours
 
 Open the gear in the popover:
 
 - Choose **Blue, Mint, Violet or Amber**. The accent, ribbon and graphite surface update together.
+- On **macOS 26**, choose **Glass** for system Liquid Glass behind the navigation and primary actions, with the system accent color. Older macOS versions keep the existing palettes. Based on [Egor's contribution (#2)](https://github.com/itscloud0/wattnook/pull/2), adapted to Keep Awake and older build SDKs.
 - Show any combination of **CPU load, RAM used, SSD space used and battery percentage** in the menu bar. **SSD used** means occupied disk space as a percentage. Read/write throughput remains available in System.
 - Keep or hide the battery icon. CPU-only, CPU + RAM, battery percentage-only and other combinations are supported.
 - Click each headline metric on **System** to independently cycle its saved units: CPU percentage/core equivalents, RAM percentage/used bytes, disk throughput/space-used percentage/used bytes. One aligned row adds context: **process count under CPU**, **swap used under Memory**, and **free space under Disk**. Consumer rows pair CPU percentages with core equivalents, RSS bytes with physical-RAM percentage, or separate disk read/write rates.
 - Choices persist across restarts. Turning everything off retains the battery icon so the app stays reachable.
+- Under **Monitoring**, disable **System monitoring** to stop its timer, process scans and history collection. Battery controls and Keep Awake remain independent. **Keep 15-minute history** is opt-in; disabling it releases the history buffer.
 - Advanced battery controls remain one click away.
 
 <details>
@@ -72,6 +75,7 @@ Open the gear in the popover:
 | CPU load | Whole-system CPU busy percentage |
 | App CPU | Percentage of total CPU capacity, on the same scale as CPU load; second line shows occupied / available core equivalents |
 | Memory used | Physical memory usage estimate, not memory pressure |
+| Memory pressure | macOS pressure level: Normal, Elevated or Critical; Unavailable when unsupported or inaccessible |
 | App memory | Resident memory (RSS), including attributed helpers |
 | Swap used | Current system swap occupancy from `vm.swapusage`; separate from RAM used and swap-file capacity |
 | Disk MB/s | Internal-drive read + write throughput, decimal MB/s |
@@ -80,7 +84,9 @@ Open the gear in the popover:
 
 Disk counters are sampled every two seconds. Unavailable or reset counters are shown as unavailable until a valid delta arrives; they do not become traffic spikes. Some apps' disk activity may not be attributable, and app totals need not match whole-drive totals.
 
-Process scans run every two seconds while the popover is open and every six seconds while closed. CPU deltas convert Mach ticks using the host timebase; PID reuse resets the baseline. Both headline and consumer percentages use total CPU capacity as their denominator. For example, 2.34 occupied cores out of 10 means 23.4% CPU, with `2.34 / 10 cores` shown below. These are time-based core equivalents, not performance/efficiency-core-weighted computing power. The list is not a complete accounting of kernel/system CPU: macOS may deny access to some processes.
+Process scans run every two seconds only while the System app list is visible, or on an explicit diagnostics-menu request. They stop when the popover closes or another page is selected. CPU deltas convert Mach ticks using the host timebase; PID reuse resets the baseline. Both headline and consumer percentages use total CPU capacity as their denominator. For example, 2.34 occupied cores out of 10 means 23.4% CPU, with `2.34 / 10 cores` shown below. These are time-based core equivalents, not performance/efficiency-core-weighted computing power. The list is not a complete accounting of kernel/system CPU: macOS may deny access to some processes.
+
+**System → History** uses a fixed 90-sample ring buffer (3.6 KB of sample data), sampled no more often than every ten seconds using the existing monitoring timer. It shows a 15-minute window, breaks lines across unavailable readings or long gaps, and does not store telemetry on disk. CPU/RAM charts use a 0–100% scale; power and throughput scale to the visible maximum. Memory pressure comes from macOS's `kern.memorystatus_vm_pressure_level`, not a fabricated RAM-percentage threshold; this is not a stable public API, so unsupported readings stay unavailable. Elevated pressure is indicated in the view; background workload notifications are not implemented.
 
 ## How it works
 
@@ -89,15 +95,16 @@ flowchart LR
     UI["WattNook · native AppKit"] --> OS["macOS · power & process counters"]
     UI <-->|"local Unix socket"| D["batt daemon"]
     D --> SMC["SMC · charging control"]
-    UI --> H["Bundled display helper"]
-    H --> Display["Display sleep · keep Mac awake"]
+    UI --> H["Bundled Keep Awake helper"]
+    H --> Sleep["System sleep setting"]
+    UI --> Lid["Lid events · built-in brightness"]
 ```
 
-The interface, local monitoring and display helper live in one app bundle. The charging daemon remains separate because it needs privileges. No Electron UI and no new third-party UI dependencies.
+The interface, local monitoring and Keep Awake helper live in one app bundle. The charging daemon remains separate because it needs privileges. No Electron UI and no new third-party UI dependencies.
 
 ## Why this is a fork
 
-WattNook began as a public fork of [Charlie Chiang's batt](https://github.com/charlie0129/batt). Its charging control and daemon remain the foundation; the menu-bar UI, heat protection, system diagnostics, and screen-off helper are additions here. Git history and the original [GPL-2.0 license](LICENSE) are retained. This project is independent of AlDente and CleanMyMac; neither their branding nor proprietary UI code is included.
+WattNook began as a public fork of [Charlie Chiang's batt](https://github.com/charlie0129/batt). Its charging control and daemon remain the foundation; the menu-bar UI, heat protection, system diagnostics, and Keep Awake controls are additions here. Git history and the original [GPL-2.0 license](LICENSE) are retained. This project is independent of AlDente and CleanMyMac; neither their branding nor proprietary UI code is included.
 
 The CLI and daemon retain the `batt-thermal` name during this transition so existing charge-limit installations do not break. **WattNook** is the user-facing app name, and the repository is [`itscloud0/wattnook`](https://github.com/itscloud0/wattnook). It remains a fork of `charlie0129/batt` with the original Git history and GPL-2.0 license.
 
@@ -110,13 +117,19 @@ chmod +x tools/build-wattnook-app.sh
 tools/build-wattnook-app.sh /tmp/WattNook.app
 ```
 
-The script builds the UI, bundles the Dark Work helper, and packages the app icon from [`tools/app/WattNook-Icon.png`](tools/app/WattNook-Icon.png). It **does not install or modify the privileged daemon**, create a login item, or change a charge limit. Those remain manual, machine-specific setup steps. The app expects the compatible daemon at `/var/run/batt-thermal.sock`; without it the UI cannot control charging. Do not use the upstream release links below as WattNook installers.
+The script builds the UI, bundles the Keep Awake helper, and packages the app icon from [`tools/app/WattNook-Icon.png`](tools/app/WattNook-Icon.png). It **does not install or modify the privileged daemon**, create a login item, or change a charge limit. Those remain manual, machine-specific setup steps. The app expects the compatible daemon at `/var/run/batt-thermal.sock`; without it the UI cannot control charging. Do not use the upstream release links below as WattNook installers.
 
-## What the display control does
+## Keep Awake and closed-lid work
 
-It requests macOS display sleep and holds an idle-sleep assertion. It does not force hardware brightness to zero. During Screen off, the bundled helper listens for activity from supported physical HID keyboards, mice and trackpads, retaining only an activity flag, not key contents or an event history. Physical input ends the session and releases the assertion; an automation-only display wake triggers another display-sleep request, at most once every two seconds. Monitoring exists only during the session and stops when it ends. Normal macOS brightness is preserved. A brief flash from an external wake or an app holding a display assertion cannot be ruled out; this is not a guaranteed blackout or a keyboard-backlight controller.
+The old Screen off / Dark Work feature has been removed after repeated re-sleep during unlocking. Keep Awake instead uses the macOS `pmset -a disablesleep` setting, the same mechanism documented for [Vorssaint's closed-lid mode](https://github.com/vorssaint/vorssaint-utils/blob/main/docs/PERMISSIONS.md). Implementation is independent; no Vorssaint source is copied. The helper first tries non-interactive `sudo` for exactly `/usr/bin/pmset -a disablesleep 1` or `0`. Without a matching permission, it falls back to normal macOS administrator authorization. On this development Mac the user explicitly approved a root-owned, mode-0440 `/etc/sudoers.d/wattnook-keep-awake` rule for those two commands only; this machine-specific rule is not bundled or automatically installed on other Macs. Any process running as the authorized user can execute those two sleep toggles, not just WattNook. No privileged daemon is installed. The button reads the actual system setting rather than a saved app flag, and a failed/cancelled request does not report success. The transport warning is acknowledged once rather than on every enable.
 
-Allow WattNook/DarkWork under **System Settings → Privacy & Security → Input Monitoring** when prompted, then retry Screen off. Without permission, or if no supported physical input device can be opened, activation refuses to switch off the screen. Unknown/virtual HID transports are ignored; remapped or unusual input devices need manual compatibility testing. Watchers are scoped to their own session so an old watcher cannot clear a later activation. This is not a lid-closed or clamshell solution.
+**This is system-wide, not a per-app assertion or timed session. It remains enabled after quitting WattNook. Turn it off explicitly before transport, especially before putting the Mac in a bag.** Keep the Mac ventilated, preferably connected to power. Do not toggle the same setting concurrently in another utility such as Vorssaint. Recovery from Terminal: `sudo pmset -a disablesleep 0`. WattNook does not automatically override other utilities' settings on launch or exit.
+
+While Keep Awake and WattNook are running, an IOKit lid notification observer dims only the built-in display through hardware brightness control when the lid closes, then restores the saved level on opening or disabling the mode. It never sleeps the display repeatedly or intercepts keyboard input. A saved level survives a crash for recovery on the next launch; an already-restored/user-changed brightness is not overwritten. Notifications are removed when Keep Awake ends; no extra polling timer or separate watcher is added. Keep WattNook running for this lid behavior. The bridge uses private DisplayServices APIs and must be tested on your hardware: zero hardware brightness is **not a guarantee that the panel is electrically powered off**. External displays and keyboard lighting are untouched. WattNook does not change your display-idle timeout.
+
+Local CLI tasks can continue while macOS remains awake, but remote desktop/computer-use workflows may depend on an unlocked session or an available display. Closed-lid behavior, administrator cancellation and actual remote workflows require manual testing on your Mac; unit tests do not prove those hardware conditions. Keep Awake does not unlock the Mac or change charging settings. Existing screenshot images predate this button replacement. Removing the optional rule requires administrator authorization; first turn Keep Awake off, then remove only `/etc/sudoers.d/wattnook-keep-awake` (for example with `sudo rm /etc/sudoers.d/wattnook-keep-awake`).
+
+**Advanced controls → Diagnostics → Keep Awake diagnostics** shows and optionally copies the last 64 local state/lid/sleep/wake/error events. While the guard runs, a checkpoint is recorded at most once every 15 minutes through the existing timer; no separate watcher is started. This bounded journal persists locally in app preferences and contains no keyboard input, network addresses or app names. Failed sleep-status reads preserve the last display-guard state rather than treating an unknown status as Off; missing lid subscriptions are retried. Status/brightness failures appear on the Keep Awake button and in this report. The report does **not** monitor or guarantee a Codex Remote connection, and absence of sleep events is not proof that the network/session stayed available.
 
 The charge-limit label is non-interactive and sits below the rail on the left, so it cannot intercept dragging. Use the marker (or keyboard arrows with the rail focused) to adjust the limit; exact presets remain in Advanced controls.
 

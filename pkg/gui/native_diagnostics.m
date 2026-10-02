@@ -25,6 +25,7 @@ static NSString *MemoryLabel(double bytes) {
 @implementation BattMenuController (Diagnostics)
 
 - (void)updateAppStats {
+    if (!WattMonitoringEnabled()) return;
     @autoreleasepool {
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     NSTimeInterval elapsed = now - _previousProcessSampleTime;
@@ -189,6 +190,7 @@ static NSString *MemoryLabel(double bytes) {
 }
 
 - (void)updateDiagnosticMenus {
+    [self updateAppStats];
     [self populateDiagnosticMenu:self.cpuAppsMenu byCPU:YES];
     [self populateDiagnosticMenu:self.memoryAppsMenu byCPU:NO];
 }

@@ -39,13 +39,17 @@ Consumer CPU percentages use the same total-capacity scale as the CPU headline, 
 
 The popover uses an accent-tinted graphite native surface. Blue (default), Mint, Violet and Amber palettes are user-selectable; active charging stays green and low battery stays orange. Selected controls darken the accent for readable white text. The UI should not encode a charging state with color alone.
 
+Glass is an optional macOS 26 palette adapted from PR #2 by Egor Latysh. It exposes the system popover material and groups native glass effects behind navigation and primary actions, not telemetry content. Public glass classes are resolved at runtime so SDK 15.5 builds remain supported; unavailable systems retain the graphite fallback. Palette switching does not modify Keep Awake or reintroduce Screen Off.
+
+System adds one quiet memory-pressure label above the three metrics and a History link opposite it. History is a separate page within the existing popover, not four charts squeezed into the consumer list. CPU/RAM use a fixed percentage scale; power/disk auto-scale. Missing samples make gaps, never invented zeroes. Settings keeps palette/menu-bar controls and adds explicit monitoring/history checkboxes. Disabling monitoring stops its sampler and releases its history/process buffers; battery controls stay available.
+
 ## Typography
 
 Use the system font for native legibility. The battery percentage is 36 pt; system measurements are 14 pt with tabular digits; state and action labels are 11–13 pt. Watt values omit the approximation glyph for a cleaner display; telemetry is still derived and documented as approximate. Temperature is plain text with semantic heat color and no thermometer icon. Battery percentage sits 3 pt closer to its icon.
 
 ## Layout
 
-The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus unboxed temperature, 220 pt power region, parallel Heat protection/Screen off buttons, three small metrics and an SSD used/free storage bar. Duplicate app rows stay on System only. System follows approved C: three detailed metrics, one readable Swap/process-count row, CPU/Memory/Disk sort controls, six consumer rows and Activity Monitor. Storage/I/O details are not repeated below the headline metrics. Settings replaces the page content without enlarging the popover. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols, with matching weight and size across sources and destinations.
+The popover is 360×480 pt with Battery/System tabs. Battery retains the approved A composition: percentage plus unboxed temperature, 220 pt power region, parallel Heat protection/Keep Awake buttons, three small metrics and an SSD used/free storage bar. Duplicate app rows stay on System only. System follows approved C: three detailed metrics, one readable Swap/process-count row, CPU/Memory/Disk sort controls, six consumer rows and Activity Monitor. Storage/I/O details are not repeated below the headline metrics. Settings replaces the page content without enlarging the popover. A compact layout never removes the meaning of a value to save space. Watt labels occupy their own lanes, away from ribbons and endpoint symbols, with matching weight and size across sources and destinations.
 
 ## Elevation & Depth
 

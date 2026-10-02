@@ -24,7 +24,7 @@ chmod +x "$app/Contents/MacOS/WattNook"
   cd "$project_dir"
   go build -o "$app/Contents/MacOS/batt-thermal" ./cmd/batt
   swiftc -O -module-cache-path "${TMPDIR:-/tmp}/wattnook-swift-modules" \
-    tools/dark-work/DarkWork.swift -o "$app/Contents/MacOS/DarkWork"
+    tools/keep-awake/Policy.swift tools/keep-awake/KeepAwake.swift -o "$app/Contents/MacOS/KeepAwake"
   icon_tmp=$(mktemp -d "${TMPDIR:-/tmp}/wattnook-icon.XXXXXX")
   trap 'rm -rf "$icon_tmp"' EXIT
   icon_source="$project_dir/tools/app/WattNook-Icon.png"

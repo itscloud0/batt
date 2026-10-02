@@ -37,7 +37,7 @@ typedef enum {
     BattItemHeatBalanced,
     BattItemHeatRelaxed,
     BattItemHeatCustom,
-    BattItemDarkWork,
+    BattItemKeepAwake,
     BattItemForceDischarge,
     BattItemForceDischargeCountdown,
     BattItemForceDischargeStop,

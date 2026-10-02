@@ -20,8 +20,15 @@ static NSButton *FindButton(NSView *view, NSString *title) {
     }
     return nil;
 }
+static NSUInteger CountGlassViews(NSView *view) {
+    NSUInteger count = [NSStringFromClass(view.class) isEqual:@"NSGlassEffectContainerView"] ? 1 : 0;
+    for (NSView *child in view.subviews) count += CountGlassViews(child);
+    return count;
+}
 static void Capture(NSView *view, NSString *directory, NSString *name) {
     if (getenv("WATTNOOK_CHECKS_ONLY")) return;
+    const char *prefix = getenv("WATTNOOK_CAPTURE_PREFIX");
+    if (prefix && ![name hasPrefix:[NSString stringWithUTF8String:prefix]]) return;
     [view displayIfNeeded];
     NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:view.bounds];
     [view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];
@@ -32,6 +39,24 @@ static void Capture(NSView *view, NSString *directory, NSString *name) {
 int main(int argc, const char *argv[]) {
     if (argc != 2) return 2;
     @autoreleasepool {
+        assert(WattKeepLidGuard(nil,YES)); // failed status read must not restore a closed display
+        assert(!WattKeepLidGuard(nil,NO));
+        assert(!WattKeepLidGuard(@NO,YES));
+        assert(WattKeepLidGuard(@YES,NO));
+        assert([WattMemoryPressureLabel(DISPATCH_MEMORYPRESSURE_NORMAL) isEqual:@"Normal"]);
+        assert([WattMemoryPressureLabel(99) isEqual:@"Unavailable"]);
+        WattMetricHistory *history = [[[WattMetricHistory alloc] init] autorelease];
+        for (NSUInteger i=0;i<1000;i++) [history append:(WattMetricSample){i*10,25,80,12,3}];
+        assert(history.count == WattHistoryCapacity);
+        assert([history sampleAtIndex:0].time == 9100);
+        assert([history sampleAtIndex:89].time == 9990);
+        [history append:(WattMetricSample){9991,30,85,20,4}];
+        assert([history sampleAtIndex:89].time == 9990); // rate limited, no growth
+        [history append:(WattMetricSample){10000,-1,120,NAN,INFINITY}];
+        WattMetricSample missing = [history sampleAtIndex:89];
+        assert(isnan(missing.cpu) && isnan(missing.memory) && isnan(missing.watts) && isnan(missing.disk));
+        [history append:(WattMetricSample){5,30,50,12,2}]; // backwards clock clears stale timeline
+        assert(history.count == 1 && [history sampleAtIndex:0].time == 5);
         assert([WattCPUUsageLabel(234,10) isEqual:@"23.4% CPU"]);
         assert([WattCPUUsageLabel(234,8) isEqual:@"29.2% CPU"]);
         assert([WattCPUUsageLabel(100,1) isEqual:@"100.0% CPU"]);
@@ -57,6 +82,12 @@ int main(int argc, const char *argv[]) {
         [NSApplication sharedApplication];
         // This executable has no app bundle: preferences are isolated from WattNook.
         assert(NSBundle.mainBundle.bundleIdentifier == nil);
+        for (NSString *key in @[@"WattNookMonitoringEnabled",@"WattNookHistoryEnabled",@"WattNookAwakeEvents"])
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+        for (NSInteger i=0;i<80;i++) WattRecordAwakeEvent([NSString stringWithFormat:@"Test event %ld",(long)i]);
+        NSArray *awakeEvents = [NSUserDefaults.standardUserDefaults arrayForKey:@"WattNookAwakeEvents"];
+        assert(awakeEvents.count == 64 && [awakeEvents.firstObject hasSuffix:@"Test event 16"]);
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"WattNookAwakeEvents"];
         for (NSString *key in @[@"WattNookPalette",@"WattNookMenuMetrics",@"WattNookMenuBatteryIcon",@"WattNookCPUUnits",@"WattNookMemoryUnits",@"WattNookDiskUnits"])
             [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
         NSString *directory = [NSString stringWithUTF8String:argv[1]];
@@ -104,6 +135,22 @@ int main(int argc, const char *argv[]) {
             Capture(view,directory,state[@"name"]);
         }
         NSButton *system = FindButton(view,@"System"); assert(system);
+        // Cached system telemetry drives the real button; pending authorization blocks repeats.
+        c.keepAwakeStatusTime = NSProcessInfo.processInfo.systemUptime;
+        c.keepAwakeStatus = @YES;
+        BattRefreshPopover(c,63,81);
+        assert([c.darkButton.title isEqual:@"Keep Awake · On"] && c.darkButton.enabled);
+        c.keepAwakeChanging = YES;
+        BattRefreshPopover(c,63,81);
+        assert([c.darkButton.title isEqual:@"Changing…"] && !c.darkButton.enabled);
+        assert(![c item:BattItemKeepAwake].enabled);
+        c.keepAwakeChanging = NO;
+        c.keepAwakeStatus = @NO;
+        BattRefreshPopover(c,63,81);
+        assert([c.darkButton.title isEqual:@"Keep Awake"] && c.darkButton.enabled);
+        c.keepAwakeStatus = nil;
+        BattRefreshPopover(c,63,81);
+        assert([c.darkButton.title isEqual:@"Keep Awake · ?"]);
         c.powerFlowView.limitEditable = YES;
         [c.powerFlowView keyDown:[NSEvent keyEventWithType:NSEventTypeKeyDown
             location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil
@@ -220,6 +267,26 @@ int main(int argc, const char *argv[]) {
         [FindButton(view,@"Disk") performClick:nil]; Capture(view,directory,@"system-disk");
         NSButton *gear = FindButton(view,@""); assert(gear);
         [gear performClick:nil]; assert(FindButton(view,@"SSD used")); Capture(view,directory,@"settings");
+        NSButton *glass = FindButton(view,@"Glass"); assert(glass);
+        assert(glass.hidden == !WattGlassAvailable());
+        [NSUserDefaults.standardUserDefaults setObject:@"Glass" forKey:@"WattNookPalette"];
+        assert(WattGlassTheme() == WattGlassAvailable());
+        [FindButton(view,@"Blue") performClick:nil];
+        assert(!WattGlassTheme());
+        assert(CountGlassViews(view) == 0);
+        if (WattGlassAvailable()) {
+            [glass performClick:nil]; assert(WattGlassTheme());
+            assert(CountGlassViews(view) == 2);
+            [FindButton(view,@"System") performClick:nil];
+            [FindButton(view,@"Battery") performClick:nil];
+            assert(FindButton(view,@"Keep Awake"));
+            assert(!FindButton(view,@"Screen off"));
+            [gear performClick:nil];
+            [FindButton(view,@"Blue") performClick:nil]; assert(!WattGlassTheme());
+            assert(CountGlassViews(view) == 0);
+            [glass performClick:nil]; assert(WattGlassTheme());
+            assert(CountGlassViews(view) == 2);
+        }
         [FindButton(view,@"Mint") performClick:nil];
         assert([[NSUserDefaults.standardUserDefaults stringForKey:@"WattNookPalette"] isEqual:@"Mint"]);
         [FindButton(view,@"Memory used") performClick:nil];
@@ -318,10 +385,43 @@ int main(int argc, const char *argv[]) {
         c.powerFlowView.flowAnimationEnabled = NO;
         for (CALayer *layer in c.powerFlowView.layer.sublayers)
             assert([layer animationForKey:@"flow"] == nil);
+        [gear performClick:nil];
+        [FindButton(view,@"Keep 15-minute history") performClick:nil];
+        assert(c.metricHistory && c.statsTimer.valid);
+        Capture(view,directory,@"monitoring-settings");
+        [FindButton(view,@"System") performClick:nil];
+        NSTextField *pressure = [view valueForKey:@"_pressure"];
+        assert(NSMaxY(pressure.frame) <= NSHeight(pressure.superview.bounds));
+        assert(!NSIntersectsRect(pressure.frame,FindButton(view,@"History ›").frame));
+        // Illustrative graph fixture covers all four series and a missing sample.
+        c.metricHistory = [[[WattMetricHistory alloc] init] autorelease];
+        NSTimeInterval historyNow = NSDate.timeIntervalSinceReferenceDate;
+        for (NSInteger i=0;i<90;i++)
+            [c.metricHistory append:(WattMetricSample){historyNow-890+i*10,
+                30+20*sin(i/8.0),65+8*sin(i/17.0),i == 50 ? NAN : 20+12*sin(i/10.0),15+10*cos(i/7.0)}];
+        [FindButton(view,@"History ›") performClick:nil];
+        assert(!c.systemPageVisible && !((NSView *)[view valueForKey:@"_historyPage"]).hidden);
+        // Cover real graph drawing without generating screenshots.
+        [[view valueForKey:@"_historyChart"] display];
+        Capture(view,directory,@"monitoring-history");
+        [gear performClick:nil];
+        [FindButton(view,@"System monitoring") performClick:nil];
+        assert(!WattMonitoringEnabled() && !c.statsTimer && !c.metricHistory && !c.appStats);
+        assert(!c.previousProcessCPU && !c.previousDiskCounters && c.memoryPressure == 0);
+        [c updateSystemStats:nil]; [c updateAppStats];
+        assert(!c.previousProcessCPU && !c.previousDiskCounters && c.memoryPressure == 0);
+        [FindButton(view,@"System monitoring") performClick:nil];
+        assert(c.statsTimer.valid && c.metricHistory);
+        [FindButton(view,@"Keep 15-minute history") performClick:nil];
+        assert(!c.metricHistory && c.statsTimer.valid);
+        [FindButton(view,@"System monitoring") performClick:nil];
+        assert(!c.statsTimer);
         [window orderOut:nil];
         NSLog(@"Native checks passed; internal disks: %lu, read %.1f B/s, write %.1f B/s",
             (unsigned long)c.previousDiskCounters.count,c.diskReadRate,c.diskWriteRate);
         [window release]; [c release];
+        for (NSString *key in @[@"WattNookMonitoringEnabled",@"WattNookHistoryEnabled",@"WattNookAwakeEvents"])
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
         for (NSString *key in @[@"WattNookPalette",@"WattNookMenuMetrics",@"WattNookMenuBatteryIcon",@"WattNookCPUUnits",@"WattNookMemoryUnits",@"WattNookDiskUnits"])
             [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
     }

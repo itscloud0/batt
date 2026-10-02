@@ -62,6 +62,8 @@ void BattUpdateStorage(BattMenuController *controller) {
     controller.previousDiskCounters = counters;
     controller.previousDiskSampleTime = now;
     struct statfs volume;
+    controller.diskTotalBytes = controller.diskFreeBytes = 0;
+    controller.diskSpacePercent = -1;
     if (statfs("/System/Volumes/Data", &volume) == 0 && volume.f_blocks > 0) {
         controller.diskTotalBytes = volume.f_blocks * (uint64_t)volume.f_bsize;
         controller.diskFreeBytes = volume.f_bavail * (uint64_t)volume.f_bsize;
