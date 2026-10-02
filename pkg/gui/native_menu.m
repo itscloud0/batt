@@ -5,6 +5,65 @@
 
 static const NSTimeInterval BattMenuUpdateInterval = 10.0;
 
+static NSColor *WattBatteryColor(NSInteger charge, BOOL pluggedIn) {
+    return !pluggedIn && charge <= 20 ? NSColor.systemRedColor
+        : ([NSProcessInfo processInfo].lowPowerModeEnabled
+            ? NSColor.systemYellowColor : NSColor.whiteColor);
+}
+
+// Tahoe-style glyph: the percentage sits inside the battery, knocked out of
+// the fill and drawn solid over the empty part. Power state moves outside.
+static NSImage *WattPercentBatteryGlyph(NSInteger charge, BOOL pluggedIn, BOOL charging) {
+    charge = MAX(0, MIN(100, charge));
+    NSBundle *controlCenter = [NSBundle bundleWithPath:@"/System/Library/CoreServices/ControlCenter.app"];
+    NSImage *outline = [controlCenter imageForResource:@"battery-outline"];
+    NSImage *cap = [controlCenter imageForResource:@"battery-cap"];
+    NSImage *power = !pluggedIn ? nil :
+        [NSImage imageWithSystemSymbolName:charging ? @"bolt.fill" : @"powerplug.fill"
+                  accessibilityDescription:nil];
+    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(power ? 34 : 25, 14)] autorelease];
+    [image lockFocus];
+    [NSColor.blackColor set];
+    CGFloat fillEnd = 2 + 19.0 * charge / 100.0;
+    [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(2, 3, fillEnd - 2, 8)
+                                     xRadius:1.5 yRadius:1.5] fill];
+    if (outline != nil && cap != nil) {
+        [outline drawInRect:NSMakeRect(0, 1, 23, 12) fromRect:NSZeroRect
+                 operation:NSCompositingOperationSourceOver fraction:1];
+        [cap drawInRect:NSMakeRect(23, 1, 2, 12) fromRect:NSZeroRect
+             operation:NSCompositingOperationSourceOver fraction:1];
+    } else {
+        NSBezierPath *body = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.5, 1.5, 22, 11)
+                                                             xRadius:3 yRadius:3];
+        body.lineWidth = 1;
+        [body stroke];
+        NSRectFill(NSMakeRect(23, 5, 1.5, 4));
+    }
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:charge == 100 ? 7 : 8.5
+                                                    weight:NSFontWeightBold];
+    NSString *text = [NSString stringWithFormat:@"%ld", (long)charge];
+    NSDictionary *style = @{NSFontAttributeName:font,
+                            NSForegroundColorAttributeName:NSColor.blackColor};
+    NSSize size = [text sizeWithAttributes:style];
+    NSPoint origin = NSMakePoint(2 + (19 - size.width) / 2,
+                                 7 - font.capHeight / 2 + font.descender);
+    NSGraphicsContext *context = NSGraphicsContext.currentContext;
+    context.compositingOperation = NSCompositingOperationDestinationOut;
+    [text drawAtPoint:origin withAttributes:style];
+    context.compositingOperation = NSCompositingOperationSourceOver;
+    [NSGraphicsContext saveGraphicsState];
+    NSRectClip(NSMakeRect(fillEnd, 0, 23 - fillEnd, 14));
+    [text drawAtPoint:origin withAttributes:style];
+    [NSGraphicsContext restoreGraphicsState];
+    if (power) [power drawInRect:NSMakeRect(27, 2.5, 7, 9) fromRect:NSZeroRect
+                       operation:NSCompositingOperationSourceOver fraction:1];
+    [WattBatteryColor(charge, pluggedIn) setFill];
+    NSRectFillUsingOperation(NSMakeRect(0, 0, image.size.width, 14),
+                             NSCompositingOperationSourceAtop);
+    [image unlockFocus];
+    return image;
+}
+
 static NSMenuItem *ActionItem(BattMenuController *controller,
                               NSString *title,
                               NSString *key,
@@ -444,11 +503,17 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     NSDictionary *chargeStyle = @{NSFontAttributeName:
         [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName:NSColor.whiteColor};
-    CGFloat percentGap = percent && labels.count ? 10 : 0;
-    CGFloat percentWidth = percent ? percentGap+ceil([charge sizeWithAttributes:chargeStyle].width)+4 : 0;
-    CGFloat iconGap = icon && (labels.count || percent) ? 8 : 0;
+    // Icon + battery percentage: draw the number inside the battery, like macOS.
+    BOOL inside = percent && icon && self.powerFlowView.chargePercent >= 0;
+    BOOL percentText = percent && !inside;
+    NSImage *glyph = inside ? WattPercentBatteryGlyph(self.powerFlowView.chargePercent,
+        self.powerFlowView.pluggedIn, _statusCharging) : self.batteryIcon;
+    CGFloat glyphWidth = glyph ? glyph.size.width : 25;
+    CGFloat percentGap = percentText && labels.count ? 10 : 0;
+    CGFloat percentWidth = percentText ? percentGap+ceil([charge sizeWithAttributes:chargeStyle].width)+4 : 0;
+    CGFloat iconGap = icon && (labels.count || percentText) ? 8 : 0;
     NSImage *combined = [[[NSImage alloc] initWithSize:
-        NSMakeSize(MAX(24,stackWidth+percentWidth+iconGap+(icon ? 26 : 0)),24)] autorelease];
+        NSMakeSize(MAX(24,stackWidth+percentWidth+iconGap+(icon ? glyphWidth+1 : 0)),24)] autorelease];
     [combined lockFocus];
     CGFloat height = [@"100%" sizeWithAttributes:attributes].height;
     for (NSInteger i=0;i<labels.count;i++) {
@@ -456,9 +521,9 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
         [labels[i] drawAtPoint:NSMakePoint(1,y) withAttributes:attributes];
         [values[i] drawAtPoint:NSMakePoint(labelWidth+6,y) withAttributes:attributes];
     }
-    if (percent) [charge drawAtPoint:NSMakePoint(stackWidth+percentGap,
+    if (percentText) [charge drawAtPoint:NSMakePoint(stackWidth+percentGap,
         (24-[charge sizeWithAttributes:chargeStyle].height)/2) withAttributes:chargeStyle];
-    if (icon) [self.batteryIcon drawInRect:NSMakeRect(stackWidth+percentWidth+iconGap,5,25,14)
+    if (icon) [glyph drawInRect:NSMakeRect(stackWidth+percentWidth+iconGap,5,glyphWidth,14)
         fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
     [combined unlockFocus];
     self.statusItem.button.image = combined;
@@ -530,24 +595,23 @@ static NSMenu *AddSubmenu(BattMenuController *controller,
     }
     // Keep Control Center's exact outlines, but render them as a fixed white
     // glyph: NSStatusBar does not reliably tint a composed template image.
-    NSColor *iconColor = !pluggedIn && charge <= 20 ? NSColor.systemRedColor
-        : ([NSProcessInfo processInfo].lowPowerModeEnabled
-            ? NSColor.systemYellowColor : NSColor.whiteColor);
     [image lockFocus];
-    [iconColor setFill];
+    [WattBatteryColor(charge, pluggedIn) setFill];
     NSRectFillUsingOperation(NSMakeRect(0, 0, image.size.width, image.size.height),
                              NSCompositingOperationSourceAtop);
     [image unlockFocus];
     image.template = NO;
     self.batteryIcon = image;
+    // The status image reads these, so set them before redrawing it.
+    _statusCharging = charging;
+    self.powerFlowView.chargePercent = charge;
+    self.powerFlowView.pluggedIn = pluggedIn;
     [self refreshStatusImage];
     self.statusItem.button.contentTintColor = nil;
     NSString *state = heatPaused && pluggedIn ? @"heat protection paused charging" :
         (charging ? @"charging" : (pluggedIn ? @"plugged in, not charging" : @"on battery"));
     self.statusItem.button.toolTip = [NSString stringWithFormat:@"Battery %ld%%, %@", (long)charge, state];
     self.statusItem.button.accessibilityLabel = self.statusItem.button.toolTip;
-    self.powerFlowView.chargePercent = charge;
-    self.powerFlowView.pluggedIn = pluggedIn;
     self.powerFlowView.heatPaused = heatPaused;
     [self.powerFlowView setNeedsDisplay:YES];
     [self refreshPopoverControls];
