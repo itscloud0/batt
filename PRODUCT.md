@@ -6,6 +6,12 @@
 
 macOS native (AppKit menu-bar application with a privileged batt daemon).
 
+### Publication checkpoint — 2026-10-02
+
+- Published the accumulated, locally installed implementation as `bc345aaa3de40e1413390f47c0e88570b48ad98e` to `fork/thermal-ui` (`itscloud0/wattnook`). GitHub reports `thermal-ui` as the default branch; `git ls-remote` matched the local commit after the non-forced push. The earlier local-only statements below describe their original checkpoints.
+- Re-ran `go test ./...`, the native checks-only dashboard harness, Swift Keep Awake policy tests and Objective-C lid policy tests before committing; all passed. Staged diff checks passed. The unrelated untracked `docs/menubar-redesign.md` was excluded and preserved.
+- Adapted Glass code is included with attribution to Egor Latysh's PR #2; this task did not merge/close that PR or create a downloadable DMG release. The installed app remains the verified monitoring build documented below. Next acceptance: real overnight Remote connection with diagnostics, and Glass rendering on macOS 26. Do not equate source publication with either hardware acceptance or an installer release.
+
 ### Implementation checkpoint — 2026-10-02, monitoring and Keep Awake diagnostics
 
 - Added real macOS memory-pressure levels (unsupported/denied sysctl → Unavailable), optional CPU/RAM/estimated-power/disk history, and System-monitoring/history switches. History uses 90 fixed samples (3.6 KB payload), at most one per ten seconds, no disk persistence. Monitoring off invalidates its timer and frees history/process buffers; the Battery/Keep Awake loop remains independent. App scans now run only with the System list visible or an explicit diagnostics request. Host Mach-port references are balanced.
